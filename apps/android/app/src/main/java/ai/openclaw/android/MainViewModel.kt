@@ -9,10 +9,25 @@ import ai.openclaw.android.node.CanvasController
 import ai.openclaw.android.node.ScreenRecordManager
 import ai.openclaw.android.node.SmsManager
 import ai.openclaw.android.voice.VoiceConversationEntry
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
   private val runtime: NodeRuntime = (app as NodeApp).runtime
+
+  /** Text received via an Android share intent, consumed once by the chat composer. */
+  private val _pendingShareText = MutableStateFlow<String?>(null)
+  val pendingShareText: StateFlow<String?> = _pendingShareText.asStateFlow()
+
+  fun setShareText(text: String) {
+    val trimmed = text.trim()
+    if (trimmed.isNotEmpty()) _pendingShareText.value = trimmed
+  }
+
+  fun consumeShareText() {
+    _pendingShareText.value = null
+  }
 
   val canvas: CanvasController = runtime.canvas
   val canvasCurrentUrl: StateFlow<String?> = runtime.canvas.currentUrl

@@ -148,3 +148,12 @@ enum class OpenClawMotionCommand(val rawValue: String) {
     const val NamespacePrefix: String = "motion."
   }
 }
+
+enum class OpenClawChatCommand(val rawValue: String) {
+  Push("chat.push"),
+  ;
+
+  companion object {
+    const val NamespacePrefix: String = "chat."
+  }
+}

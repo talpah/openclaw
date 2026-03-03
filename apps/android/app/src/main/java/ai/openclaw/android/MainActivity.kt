@@ -1,5 +1,6 @@
 package ai.openclaw.android
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -51,8 +52,18 @@ class MainActivity : ComponentActivity() {
       }
     }
 
+    // Handle share intent received at app launch.
+    handleShareIntent(intent)
+
     // Keep startup path lean: start foreground service after first frame.
     window.decorView.post { NodeForegroundService.start(this) }
+  }
+
+  /** Handles share intents when the activity is already running (singleTop re-launch). */
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    handleShareIntent(intent)
   }
 
   override fun onStart() {
@@ -63,5 +74,16 @@ class MainActivity : ComponentActivity() {
   override fun onStop() {
     viewModel.setForeground(false)
     super.onStop()
+  }
+
+  private fun handleShareIntent(intent: Intent?) {
+    if (intent?.action != Intent.ACTION_SEND) return
+    val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.trim()
+    val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT)?.trim()
+    if (!text.isNullOrEmpty()) {
+      // Combine subject + body when both are present (e.g., shared emails or articles).
+      val payload = if (!subject.isNullOrEmpty()) "$subject\n\n$text" else text
+      viewModel.setShareText(payload)
+    }
   }
 }

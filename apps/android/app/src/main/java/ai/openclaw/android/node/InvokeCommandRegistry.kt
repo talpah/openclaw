@@ -5,6 +5,7 @@ import ai.openclaw.android.protocol.OpenClawCanvasA2UICommand
 import ai.openclaw.android.protocol.OpenClawCanvasCommand
 import ai.openclaw.android.protocol.OpenClawCameraCommand
 import ai.openclaw.android.protocol.OpenClawCapability
+import ai.openclaw.android.protocol.OpenClawChatCommand
 import ai.openclaw.android.protocol.OpenClawContactsCommand
 import ai.openclaw.android.protocol.OpenClawDeviceCommand
 import ai.openclaw.android.protocol.OpenClawLocationCommand
@@ -203,6 +204,7 @@ object InvokeCommandRegistry {
         availability = InvokeCommandAvailability.DebugBuild,
       ),
       InvokeCommandSpec(name = "app.update"),
+      InvokeCommandSpec(name = OpenClawChatCommand.Push.rawValue),
     )
 
   private val byNameInternal: Map<String, InvokeCommandSpec> = all.associateBy { it.name }

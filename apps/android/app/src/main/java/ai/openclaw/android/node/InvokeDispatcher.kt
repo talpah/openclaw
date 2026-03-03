@@ -5,6 +5,7 @@ import ai.openclaw.android.protocol.OpenClawCalendarCommand
 import ai.openclaw.android.protocol.OpenClawCanvasA2UICommand
 import ai.openclaw.android.protocol.OpenClawCanvasCommand
 import ai.openclaw.android.protocol.OpenClawCameraCommand
+import ai.openclaw.android.protocol.OpenClawChatCommand
 import ai.openclaw.android.protocol.OpenClawContactsCommand
 import ai.openclaw.android.protocol.OpenClawDeviceCommand
 import ai.openclaw.android.protocol.OpenClawLocationCommand
@@ -21,6 +22,7 @@ class InvokeDispatcher(
   private val deviceHandler: DeviceHandler,
   private val notificationsHandler: NotificationsHandler,
   private val systemHandler: SystemHandler,
+  private val chatPushHandler: ChatPushHandler,
   private val photosHandler: PhotosHandler,
   private val contactsHandler: ContactsHandler,
   private val calendarHandler: CalendarHandler,
@@ -173,6 +175,9 @@ class InvokeDispatcher(
 
       // App update
       "app.update" -> appUpdateHandler.handleUpdate(paramsJson)
+
+      // Chat commands
+      OpenClawChatCommand.Push.rawValue -> chatPushHandler.handleChatPush(paramsJson)
 
       else -> GatewaySession.InvokeResult.error(code = "INVALID_REQUEST", message = "INVALID_REQUEST: unknown command")
     }

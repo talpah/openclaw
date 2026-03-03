@@ -3,6 +3,7 @@ package ai.openclaw.android.node
 import ai.openclaw.android.protocol.OpenClawCalendarCommand
 import ai.openclaw.android.protocol.OpenClawCameraCommand
 import ai.openclaw.android.protocol.OpenClawCapability
+import ai.openclaw.android.protocol.OpenClawChatCommand
 import ai.openclaw.android.protocol.OpenClawContactsCommand
 import ai.openclaw.android.protocol.OpenClawDeviceCommand
 import ai.openclaw.android.protocol.OpenClawLocationCommand
@@ -53,6 +54,7 @@ class InvokeCommandRegistryTest {
       OpenClawCalendarCommand.Events.rawValue,
       OpenClawCalendarCommand.Add.rawValue,
       "app.update",
+      OpenClawChatCommand.Push.rawValue,
     )
 
   private val optionalCommands =

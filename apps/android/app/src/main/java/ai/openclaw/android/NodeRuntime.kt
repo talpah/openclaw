@@ -15,6 +15,7 @@ import ai.openclaw.android.gateway.DeviceAuthStore
 import ai.openclaw.android.gateway.DeviceIdentityStore
 import ai.openclaw.android.gateway.GatewayDiscovery
 import ai.openclaw.android.gateway.GatewayEndpoint
+import ai.openclaw.android.gateway.GatewayHealthMonitor
 import ai.openclaw.android.gateway.GatewaySession
 import ai.openclaw.android.gateway.probeGatewayTlsFingerprint
 import ai.openclaw.android.node.*
@@ -103,6 +104,10 @@ class NodeRuntime(context: Context) {
     appContext = appContext,
   )
 
+  private val chatPushHandler: ChatPushHandler = ChatPushHandler(
+    appContext = appContext,
+  )
+
   private val photosHandler: PhotosHandler = PhotosHandler(
     appContext = appContext,
   )
@@ -155,6 +160,7 @@ class NodeRuntime(context: Context) {
     deviceHandler = deviceHandler,
     notificationsHandler = notificationsHandler,
     systemHandler = systemHandler,
+    chatPushHandler = chatPushHandler,
     photosHandler = photosHandler,
     contactsHandler = contactsHandler,
     calendarHandler = calendarHandler,
@@ -235,6 +241,8 @@ class NodeRuntime(context: Context) {
   private var operatorStatusText: String = "Offline"
   private var nodeStatusText: String = "Offline"
 
+  private val healthMonitor = GatewayHealthMonitor(scope = scope)
+
   private val operatorSession =
     GatewaySession(
       scope = scope,
@@ -249,6 +257,25 @@ class NodeRuntime(context: Context) {
         applyMainSessionKey(mainSessionKey)
         updateStatus()
         micCapture.onGatewayConnectionChanged(true)
+        healthMonitor.start(
+          check = {
+            try {
+              val res = operatorSession.request("health", null, timeoutMs = 5_000)
+              // Accept any successful response; treat empty response as ok.
+              res.contains("\"ok\":true") || res.isEmpty() || res == "{}"
+            } catch (err: Throwable) {
+              val msg = err.message?.lowercase().orEmpty()
+              // Authorization errors mean the endpoint is valid but the role lacks the scope;
+              // treat as a pass so the monitor doesn't thrash the connection.
+              if (msg.contains("unauthorized role") || msg.contains("missing scope")) true else false
+            }
+          },
+          onFailure = {
+            Log.w("NodeRuntime", "Gateway health check failed $it times — reconnecting")
+            operatorSession.reconnect()
+            nodeSession.reconnect()
+          },
+        )
         scope.launch {
           refreshBrandingFromGateway()
           if (voiceReplySpeakerLazy.isInitialized()) {
@@ -257,6 +284,7 @@ class NodeRuntime(context: Context) {
         }
       },
       onDisconnected = { message ->
+        healthMonitor.stop()
         operatorConnected = false
         operatorStatusText = message
         _serverName.value = null
