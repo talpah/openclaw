@@ -1,5 +1,24 @@
-# ── App classes ───────────────────────────────────────────────────
--keep class ai.openclaw.android.** { *; }
+# ── kotlinx.serialization ────────────────────────────────────────
+-keepattributes *Annotation*, InnerClasses, Signature, EnclosingMethod
+-keep @kotlinx.serialization.Serializable class * { *; }
+-keepclassmembers class * {
+    @kotlinx.serialization.Serializable *;
+}
+-keep class kotlinx.serialization.** { *; }
+
+# ── Parcelable ────────────────────────────────────────────────────
+-keep class * implements android.os.Parcelable {
+    public static final android.os.Parcelable$Creator *;
+}
+
+# ── WebView @JavascriptInterface ──────────────────────────────────
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+
+# ── DeviceIdentityStore / crypto key material ─────────────────────
+-keep class ai.openclaw.android.gateway.DeviceIdentityStore { *; }
+-keep class ai.openclaw.android.gateway.DeviceIdentity { *; }
 
 # ── Bouncy Castle ─────────────────────────────────────────────────
 -keep class org.bouncycastle.** { *; }
@@ -7,13 +26,6 @@
 
 # ── CameraX ───────────────────────────────────────────────────────
 -keep class androidx.camera.** { *; }
-
-# ── kotlinx.serialization ────────────────────────────────────────
--keep class kotlinx.serialization.** { *; }
--keepclassmembers class * {
-    @kotlinx.serialization.Serializable *;
-}
--keepattributes *Annotation*, InnerClasses
 
 # ── OkHttp ────────────────────────────────────────────────────────
 -dontwarn okhttp3.**

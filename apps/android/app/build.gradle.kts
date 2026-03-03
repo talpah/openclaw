@@ -11,6 +11,21 @@ android {
     namespace = "ai.openclaw.android"
     compileSdk = 36
 
+    signingConfigs {
+        // Release signing is optional; unsigned APKs are produced when keystore.properties is absent.
+        // Copy keystore.properties.template → keystore.properties (gitignored) and fill in real values.
+        val keystorePropsFile = rootProject.file("keystore.properties")
+        if (keystorePropsFile.exists()) {
+            val keystoreProps = java.util.Properties().also { it.load(keystorePropsFile.inputStream()) }
+            create("release") {
+                storeFile = file(keystoreProps.getProperty("storeFile") ?: "")
+                storePassword = keystoreProps.getProperty("storePassword") ?: ""
+                keyAlias = keystoreProps.getProperty("keyAlias") ?: ""
+                keyPassword = keystoreProps.getProperty("keyPassword") ?: ""
+            }
+        }
+    }
+
     sourceSets {
         getByName("main") {
             assets.directories.add("../../shared/OpenClawKit/Sources/OpenClawKit/Resources")
@@ -34,6 +49,11 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Wire release signing config when keystore.properties is present.
+            val signingConfigName = "release"
+            if (signingConfigs.findByName(signingConfigName) != null) {
+                signingConfig = signingConfigs.getByName(signingConfigName)
+            }
         }
         debug {
             isMinifyEnabled = false
