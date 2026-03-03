@@ -699,6 +699,10 @@ jobs:
             command: ./gradlew --no-daemon :app:testDebugUnitTest
           - task: build
             command: ./gradlew --no-daemon :app:assembleDebug
+          - task: lint
+            command: ./gradlew --no-daemon :app:ktlintCheck :app:lintDebug
+          - task: release
+            command: ./gradlew --no-daemon :app:assembleRelease
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -733,3 +737,11 @@ jobs:
       - name: Run Android ${{ matrix.task }}
         working-directory: apps/android
         run: ${{ matrix.command }}
+
+      - name: Upload release APK
+        if: matrix.task == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-apk-${{ github.run_id }}
+          path: apps/android/app/build/outputs/apk/release/*.apk
+          retention-days: 7
