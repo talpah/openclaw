@@ -1,9 +1,7 @@
 package ai.openclaw.android.voice
 
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 
 private val directiveJson = Json { ignoreUnknownKeys = true }
 
@@ -162,30 +160,3 @@ object TalkDirectiveParser {
   }
 }
 
-private fun JsonElement?.asStringOrNull(): String? =
-  (this as? JsonPrimitive)?.takeIf { it.isString }?.content
-
-private fun JsonElement?.asDoubleOrNull(): Double? {
-  val primitive = this as? JsonPrimitive ?: return null
-  return primitive.content.toDoubleOrNull()
-}
-
-private fun JsonElement?.asIntOrNull(): Int? {
-  val primitive = this as? JsonPrimitive ?: return null
-  return primitive.content.toIntOrNull()
-}
-
-private fun JsonElement?.asLongOrNull(): Long? {
-  val primitive = this as? JsonPrimitive ?: return null
-  return primitive.content.toLongOrNull()
-}
-
-private fun JsonElement?.asBooleanOrNull(): Boolean? {
-  val primitive = this as? JsonPrimitive ?: return null
-  val content = primitive.content.trim().lowercase()
-  return when (content) {
-    "true", "yes", "1" -> true
-    "false", "no", "0" -> false
-    else -> null
-  }
-}

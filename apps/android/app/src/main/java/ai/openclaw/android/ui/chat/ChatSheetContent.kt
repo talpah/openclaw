@@ -58,6 +58,7 @@ fun ChatSheetContent(viewModel: MainViewModel) {
   val messages by viewModel.chatMessages.collectAsState()
   val errorText by viewModel.chatError.collectAsState()
   val pendingRunCount by viewModel.pendingRunCount.collectAsState()
+  val pendingShareText by viewModel.pendingShareText.collectAsState()
   val healthOk by viewModel.chatHealthOk.collectAsState()
   val sessionKey by viewModel.chatSessionKey.collectAsState()
   val mainSessionKey by viewModel.mainSessionKey.collectAsState()
@@ -149,6 +150,9 @@ fun ChatSheetContent(viewModel: MainViewModel) {
             }
           viewModel.sendChat(message = text, thinking = thinkingLevel, attachments = outgoing)
           attachments.clear()
+        },
+        initialText = pendingShareText.orEmpty().also {
+          if (!it.isEmpty()) viewModel.consumeShareText()
         },
       )
     }
