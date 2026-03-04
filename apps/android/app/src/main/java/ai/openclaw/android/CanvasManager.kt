@@ -3,6 +3,7 @@ package ai.openclaw.android
 import android.util.Log
 import ai.openclaw.android.gateway.GatewaySession
 import ai.openclaw.android.node.A2UIHandler
+import ai.openclaw.android.node.CanvasController
 import ai.openclaw.android.node.asObjectOrNull
 import ai.openclaw.android.protocol.OpenClawCanvasA2UIAction
 import kotlinx.coroutines.CoroutineScope

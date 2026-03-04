@@ -1,11 +1,14 @@
 package ai.openclaw.android.node
 
+import ai.openclaw.android.CameraHudKind
+import ai.openclaw.android.gateway.DeviceIdentityStore
 import ai.openclaw.android.protocol.OpenClawCameraCommand
 import ai.openclaw.android.protocol.OpenClawDeviceCommand
 import ai.openclaw.android.protocol.OpenClawLocationCommand
 import ai.openclaw.android.protocol.OpenClawMotionCommand
 import ai.openclaw.android.protocol.OpenClawSmsCommand
 import ai.openclaw.android.protocol.OpenClawSystemCommand
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -34,8 +37,17 @@ class InvokeDispatcherTest {
     val canvas = CanvasController()
     return InvokeDispatcher(
       canvas = canvas,
-      cameraHandler = CameraHandler(ctx, CameraCaptureManager(ctx)),
-      locationHandler = LocationHandler(ctx, LocationCaptureManager(ctx)),
+      cameraHandler = CameraHandler(
+        ctx, CameraCaptureManager(ctx), MutableStateFlow(false),
+        showCameraHud = { _, _, _ -> }, triggerCameraFlash = {},
+        invokeErrorFromThrowable = { e -> Pair("ERROR", e.message ?: "error") },
+      ),
+      locationHandler = LocationHandler(
+        ctx, LocationCaptureManager(ctx), Json { ignoreUnknownKeys = true },
+        isForeground = { isForeground },
+        locationMode = { ai.openclaw.android.LocationMode.WhileUsing },
+        locationPreciseEnabled = { true },
+      ),
       deviceHandler = DeviceHandler(ctx),
       notificationsHandler = NotificationsHandler(ctx),
       systemHandler = SystemHandler(ctx),
@@ -44,9 +56,13 @@ class InvokeDispatcherTest {
       contactsHandler = ContactsHandler(ctx),
       calendarHandler = CalendarHandler(ctx),
       motionHandler = MotionHandler(ctx),
-      screenHandler = ScreenHandler(ScreenRecordManager(ctx)) {},
+      screenHandler = ScreenHandler(
+        ScreenRecordManager(ctx),
+        setScreenRecordActive = {},
+        invokeErrorFromThrowable = { e -> Pair("ERROR", e.message ?: "error") },
+      ),
       smsHandler = SmsHandler(SmsManager(ctx)),
-      a2uiHandler = A2UIHandler(canvas, Json { ignoreUnknownKeys = true }),
+      a2uiHandler = A2UIHandler(canvas, Json { ignoreUnknownKeys = true }, getNodeCanvasHostUrl = { null }, getOperatorCanvasHostUrl = { null }),
       debugHandler = DebugHandler(ctx, DeviceIdentityStore(ctx)),
       appUpdateHandler = AppUpdateHandler(ctx) { null },
       isForeground = { isForeground },

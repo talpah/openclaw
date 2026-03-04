@@ -566,8 +566,3 @@ class MicCaptureManager(
     }
 }
 
-private fun kotlinx.serialization.json.JsonElement?.asObjectOrNull(): JsonObject? =
-  this as? JsonObject
-
-private fun kotlinx.serialization.json.JsonElement?.asStringOrNull(): String? =
-  (this as? JsonPrimitive)?.takeIf { it.isString }?.content

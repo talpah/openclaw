@@ -1,4 +1,5 @@
 import com.android.build.api.variant.impl.VariantOutputImpl
+import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -16,12 +17,13 @@ android {
         // Copy keystore.properties.template → keystore.properties (gitignored) and fill in real values.
         val keystorePropsFile = rootProject.file("keystore.properties")
         if (keystorePropsFile.exists()) {
-            val keystoreProps = java.util.Properties().also { it.load(keystorePropsFile.inputStream()) }
+            val props = Properties()
+            keystorePropsFile.inputStream().use { props.load(it) }
             create("release") {
-                storeFile = file(keystoreProps.getProperty("storeFile") ?: "")
-                storePassword = keystoreProps.getProperty("storePassword") ?: ""
-                keyAlias = keystoreProps.getProperty("keyAlias") ?: ""
-                keyPassword = keystoreProps.getProperty("keyPassword") ?: ""
+                storeFile = file(props["storeFile"].toString())
+                storePassword = props["storePassword"].toString()
+                keyAlias = props["keyAlias"].toString()
+                keyPassword = props["keyPassword"].toString()
             }
         }
     }

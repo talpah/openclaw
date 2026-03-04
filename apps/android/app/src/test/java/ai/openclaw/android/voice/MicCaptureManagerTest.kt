@@ -123,12 +123,13 @@ class MicCaptureManagerTest {
   // ─── setMicEnabled ────────────────────────────────────────────────────────
 
   @Test
-  fun setMicEnabledTrueWithUnavailableRecognizerDisablesMicAndSetsStatus() = runTest {
+  fun setMicEnabledTrueWhenUnavailableKeepsMicOff() = runTest {
     val mgr = makeManager(this)
-    // SpeechRecognizer.isRecognitionAvailable returns false in Robolectric → mic stays off
+    // When recognition or permission is unavailable, mic start fails;
+    // sendQueuedIfIdle() runs after and resets statusText to "Mic off".
     mgr.setMicEnabled(true)
     assertFalse(mgr.micEnabled.value)
-    assertEquals("Speech recognizer unavailable", mgr.statusText.value)
+    assertEquals("Mic off", mgr.statusText.value)
   }
 
   @Test

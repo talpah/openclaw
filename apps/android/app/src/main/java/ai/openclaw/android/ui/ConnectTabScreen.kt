@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import ai.openclaw.android.GatewayTrustPrompt
 import ai.openclaw.android.MainViewModel
 
 private enum class ConnectInputMode {
