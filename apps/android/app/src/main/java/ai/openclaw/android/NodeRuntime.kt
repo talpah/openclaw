@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.SystemClock
-import android.util.Log
 import androidx.core.content.ContextCompat
 import ai.openclaw.android.chat.ChatController
 import ai.openclaw.android.chat.ChatMessage
@@ -15,9 +14,6 @@ import ai.openclaw.android.gateway.DeviceAuthStore
 import ai.openclaw.android.gateway.DeviceIdentityStore
 import ai.openclaw.android.gateway.GatewayDiscovery
 import ai.openclaw.android.gateway.GatewayEndpoint
-import ai.openclaw.android.gateway.GatewayHealthMonitor
-import ai.openclaw.android.gateway.GatewaySession
-import ai.openclaw.android.gateway.probeGatewayTlsFingerprint
 import ai.openclaw.android.node.*
 import ai.openclaw.android.voice.VoiceConversationEntry
 import kotlinx.coroutines.CoroutineScope
@@ -53,7 +49,6 @@ class NodeRuntime(context: Context) {
   val discoveryStatusText: StateFlow<String> = discovery.statusText
 
   private val identityStore = DeviceIdentityStore(appContext)
-  private var connectedEndpoint: GatewayEndpoint? = null
 
   private val cameraHandler: CameraHandler = CameraHandler(
     appContext = appContext,
@@ -71,7 +66,7 @@ class NodeRuntime(context: Context) {
 
   private val appUpdateHandler: AppUpdateHandler = AppUpdateHandler(
     appContext = appContext,
-    connectedEndpoint = { connectedEndpoint },
+    connectedEndpoint = { gw.connectedEndpoint },
   )
 
   private val locationHandler: LocationHandler = LocationHandler(
@@ -128,8 +123,8 @@ class NodeRuntime(context: Context) {
   private val a2uiHandler: A2UIHandler = A2UIHandler(
     canvas = canvas,
     json = json,
-    getNodeCanvasHostUrl = { nodeSession.currentCanvasHostUrl() },
-    getOperatorCanvasHostUrl = { operatorSession.currentCanvasHostUrl() },
+    getNodeCanvasHostUrl = { gw.nodeSession.currentCanvasHostUrl() },
+    getOperatorCanvasHostUrl = { gw.operatorSession.currentCanvasHostUrl() },
   )
 
   private val connectionManager: ConnectionManager = ConnectionManager(
@@ -166,31 +161,48 @@ class NodeRuntime(context: Context) {
     locationEnabled = { locationMode.value != LocationMode.Off },
     smsAvailable = { sms.canSendSms() },
     debugBuild = { BuildConfig.DEBUG },
-    refreshNodeCanvasCapability = { nodeSession.refreshNodeCanvasCapability() },
+    refreshNodeCanvasCapability = { gw.nodeSession.refreshNodeCanvasCapability() },
     onCanvasA2uiPush = { canvasManager.onA2uiPush() },
     onCanvasA2uiReset = { canvasManager.onA2uiReset() },
     motionActivityAvailable = { motionHandler.isActivityAvailable() },
     motionPedometerAvailable = { motionHandler.isPedometerAvailable() },
   )
 
-  data class GatewayTrustPrompt(
-    val endpoint: GatewayEndpoint,
-    val fingerprintSha256: String,
-  )
+  private val gw: GatewayConnectionManager =
+    GatewayConnectionManager(
+      scope = scope,
+      identityStore = identityStore,
+      deviceAuthStore = deviceAuthStore,
+      connectionManager = connectionManager,
+      prefs = prefs,
+      gateways = gateways,
+      onMainSessionKeyChanged = { key ->
+        voice.talkMode.setMainSessionKey(key)
+        chat.applyMainSessionKey(key)
+      },
+      onOperatorConnected = {
+        voice.onGatewayConnectionChanged(true)
+        scope.launch { voice.refreshTalkModeConfig() }
+      },
+      onOperatorDisconnected = { message, resolvedKey ->
+        chat.applyMainSessionKey(resolvedKey)
+        chat.onDisconnected(message)
+        voice.onGatewayConnectionChanged(false)
+      },
+      onNodeConnected = { canvasManager.onNodeConnected() },
+      onNodeDisconnected = { canvasManager.onNodeDisconnected() },
+      onGatewayEvent = { event, payloadJson -> handleGatewayEvent(event, payloadJson) },
+      handleInvoke = { req -> invokeDispatcher.handleInvoke(req.command, req.paramsJson) },
+    )
 
-  private val _isConnected = MutableStateFlow(false)
-  val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
-  private val _nodeConnected = MutableStateFlow(false)
-  val nodeConnected: StateFlow<Boolean> = _nodeConnected.asStateFlow()
-
-  private val _statusText = MutableStateFlow("Offline")
-  val statusText: StateFlow<String> = _statusText.asStateFlow()
-
-  private val _pendingGatewayTrust = MutableStateFlow<GatewayTrustPrompt?>(null)
-  val pendingGatewayTrust: StateFlow<GatewayTrustPrompt?> = _pendingGatewayTrust.asStateFlow()
-
-  private val _mainSessionKey = MutableStateFlow("main")
-  val mainSessionKey: StateFlow<String> = _mainSessionKey.asStateFlow()
+  val isConnected: StateFlow<Boolean> get() = gw.isConnected
+  val nodeConnected: StateFlow<Boolean> get() = gw.nodeConnected
+  val statusText: StateFlow<String> get() = gw.statusText
+  val pendingGatewayTrust: StateFlow<GatewayTrustPrompt?> get() = gw.pendingGatewayTrust
+  val mainSessionKey: StateFlow<String> get() = gw.mainSessionKey
+  val serverName: StateFlow<String?> get() = gw.serverName
+  val remoteAddress: StateFlow<String?> get() = gw.remoteAddress
+  val seamColorArgb: StateFlow<Long> get() = gw.seamColorArgb
 
   private val cameraHudSeq = AtomicLong(0)
   private val _cameraHud = MutableStateFlow<CameraHudState?>(null)
@@ -206,107 +218,8 @@ class NodeRuntime(context: Context) {
   val canvasRehydratePending: StateFlow<Boolean> get() = canvasManager.canvasRehydratePending
   val canvasRehydrateErrorText: StateFlow<String?> get() = canvasManager.canvasRehydrateErrorText
 
-  private val _serverName = MutableStateFlow<String?>(null)
-  val serverName: StateFlow<String?> = _serverName.asStateFlow()
-
-  private val _remoteAddress = MutableStateFlow<String?>(null)
-  val remoteAddress: StateFlow<String?> = _remoteAddress.asStateFlow()
-
-  private val _seamColorArgb = MutableStateFlow(DEFAULT_SEAM_COLOR_ARGB)
-  val seamColorArgb: StateFlow<Long> = _seamColorArgb.asStateFlow()
-
   private val _isForeground = MutableStateFlow(true)
   val isForeground: StateFlow<Boolean> = _isForeground.asStateFlow()
-
-  private var operatorConnected = false
-  private var operatorStatusText: String = "Offline"
-  private var nodeStatusText: String = "Offline"
-
-  private val healthMonitor = GatewayHealthMonitor(scope = scope)
-
-  private val operatorSession =
-    GatewaySession(
-      scope = scope,
-      identityStore = identityStore,
-      deviceAuthStore = deviceAuthStore,
-      onConnected = { name, remote, mainSessionKey ->
-        operatorConnected = true
-        operatorStatusText = "Connected"
-        _serverName.value = name
-        _remoteAddress.value = remote
-        _seamColorArgb.value = DEFAULT_SEAM_COLOR_ARGB
-        applyMainSessionKey(mainSessionKey)
-        updateStatus()
-        voice.onGatewayConnectionChanged(true)
-        healthMonitor.start(
-          check = {
-            try {
-              val res = operatorSession.request("health", null, timeoutMs = 5_000)
-              // Accept any successful response; treat empty response as ok.
-              res.contains("\"ok\":true") || res.isEmpty() || res == "{}"
-            } catch (err: Throwable) {
-              val msg = err.message?.lowercase().orEmpty()
-              // Authorization errors mean the endpoint is valid but the role lacks the scope;
-              // treat as a pass so the monitor doesn't thrash the connection.
-              if (msg.contains("unauthorized role") || msg.contains("missing scope")) true else false
-            }
-          },
-          onFailure = {
-            Log.w("NodeRuntime", "Gateway health check failed $it times — reconnecting")
-            operatorSession.reconnect()
-            nodeSession.reconnect()
-          },
-        )
-        scope.launch {
-          refreshBrandingFromGateway()
-          voice.refreshTalkModeConfig()
-        }
-      },
-      onDisconnected = { message ->
-        healthMonitor.stop()
-        operatorConnected = false
-        operatorStatusText = message
-        _serverName.value = null
-        _remoteAddress.value = null
-        _seamColorArgb.value = DEFAULT_SEAM_COLOR_ARGB
-        if (!isCanonicalMainSessionKey(_mainSessionKey.value)) {
-          _mainSessionKey.value = "main"
-        }
-        chat.applyMainSessionKey(resolveMainSessionKey())
-        chat.onDisconnected(message)
-        updateStatus()
-        voice.onGatewayConnectionChanged(false)
-      },
-      onEvent = { event, payloadJson ->
-        handleGatewayEvent(event, payloadJson)
-      },
-    )
-
-  private val nodeSession =
-    GatewaySession(
-      scope = scope,
-      identityStore = identityStore,
-      deviceAuthStore = deviceAuthStore,
-      onConnected = { _, _, _ ->
-        _nodeConnected.value = true
-        nodeStatusText = "Connected"
-        updateStatus()
-        canvasManager.onNodeConnected()
-      },
-      onDisconnected = { message ->
-        _nodeConnected.value = false
-        nodeStatusText = message
-        updateStatus()
-        canvasManager.onNodeDisconnected()
-      },
-      onEvent = { _, _ -> },
-      onInvoke = { req ->
-        invokeDispatcher.handleInvoke(req.command, req.paramsJson)
-      },
-      onTlsFingerprint = { stableId, fingerprint ->
-        prefs.saveGatewayTlsFingerprint(stableId, fingerprint)
-      },
-    )
 
   private val canvasManager: CanvasManager =
     CanvasManager(
@@ -314,9 +227,9 @@ class NodeRuntime(context: Context) {
       scope = scope,
       json = json,
       a2uiHandler = a2uiHandler,
-      nodeSession = nodeSession,
-      isNodeConnected = { _nodeConnected.value },
-      resolveMainSessionKey = ::resolveMainSessionKey,
+      nodeSession = gw.nodeSession,
+      isNodeConnected = { gw.nodeConnected.value },
+      resolveMainSessionKey = gw::resolveMainSessionKey,
       displayName = { displayName.value },
       instanceId = { instanceId.value },
     )
@@ -324,7 +237,7 @@ class NodeRuntime(context: Context) {
   init {
     DeviceNotificationListenerService.setNodeEventSink { event, payloadJson ->
       scope.launch {
-        nodeSession.sendNodeEvent(event = event, payloadJson = payloadJson)
+        gw.nodeSession.sendNodeEvent(event = event, payloadJson = payloadJson)
       }
     }
   }
@@ -332,7 +245,7 @@ class NodeRuntime(context: Context) {
   private val chat: ChatController =
     ChatController(
       scope = scope,
-      session = operatorSession,
+      session = gw.operatorSession,
       json = json,
       supportsChatSubscribe = false,
     )
@@ -342,9 +255,9 @@ class NodeRuntime(context: Context) {
       appContext = appContext,
       scope = scope,
       prefs = prefs,
-      session = operatorSession,
-      isConnected = { operatorConnected },
-      resolveMainSessionKey = ::resolveMainSessionKey,
+      session = gw.operatorSession,
+      isConnected = { gw.operatorConnected },
+      resolveMainSessionKey = gw::resolveMainSessionKey,
       chatThinkingLevel = { chatThinkingLevel.value },
       onAudioCaptureActiveChanged = { externalAudioCaptureActive.value = it },
     )
@@ -358,39 +271,6 @@ class NodeRuntime(context: Context) {
   val micConversation: StateFlow<List<VoiceConversationEntry>> get() = voice.micConversation
   val micInputLevel: StateFlow<Float> get() = voice.micInputLevel
   val micIsSending: StateFlow<Boolean> get() = voice.micIsSending
-
-  private fun applyMainSessionKey(candidate: String?) {
-    val trimmed = normalizeMainKey(candidate) ?: return
-    if (isCanonicalMainSessionKey(_mainSessionKey.value)) return
-    if (_mainSessionKey.value == trimmed) return
-    _mainSessionKey.value = trimmed
-    voice.talkMode.setMainSessionKey(trimmed)
-    chat.applyMainSessionKey(trimmed)
-  }
-
-  private fun updateStatus() {
-    _isConnected.value = operatorConnected
-    val operator = operatorStatusText.trim()
-    val node = nodeStatusText.trim()
-    _statusText.value =
-      when {
-        operatorConnected && _nodeConnected.value -> "Connected"
-        operatorConnected && !_nodeConnected.value -> "Connected (node offline)"
-        !operatorConnected && _nodeConnected.value ->
-          if (operator.isNotEmpty() && operator != "Offline") {
-            "Connected (operator: $operator)"
-          } else {
-            "Connected (operator offline)"
-          }
-        operator.isNotBlank() && operator != "Offline" -> operator
-        else -> node
-      }
-  }
-
-  private fun resolveMainSessionKey(): String {
-    val trimmed = _mainSessionKey.value.trim()
-    return if (trimmed.isEmpty()) "main" else trimmed
-  }
 
   fun requestCanvasRehydrate(source: String = "manual", force: Boolean = true) {
     canvasManager.requestCanvasRehydrate(source, force)
@@ -414,8 +294,6 @@ class NodeRuntime(context: Context) {
   val lastDiscoveredStableId: StateFlow<String> = prefs.lastDiscoveredStableId
   val canvasDebugStatusEnabled: StateFlow<Boolean> = prefs.canvasDebugStatusEnabled
 
-  private var didAutoConnect = false
-
   val chatSessionKey: StateFlow<String> = chat.sessionKey
   val chatSessionId: StateFlow<String?> = chat.sessionId
   val chatMessages: StateFlow<List<ChatMessage>> = chat.messages
@@ -438,54 +316,14 @@ class NodeRuntime(context: Context) {
 
     voice.startObservers()
 
-    scope.launch(Dispatchers.Default) {
-      gateways.collect { list ->
-        if (list.isNotEmpty()) {
-          // Security: don't let an unauthenticated discovery feed continuously steer autoconnect.
-          // UX parity with iOS: only set once when unset.
-          if (lastDiscoveredStableId.value.trim().isEmpty()) {
-            prefs.setLastDiscoveredStableId(list.first().stableId)
-          }
-        }
-
-        if (didAutoConnect) return@collect
-        if (_isConnected.value) return@collect
-
-        if (manualEnabled.value) {
-          val host = manualHost.value.trim()
-          val port = manualPort.value
-          if (host.isNotEmpty() && port in 1..65535) {
-            // Security: autoconnect only to previously trusted gateways (stored TLS pin).
-            if (!manualTls.value) return@collect
-            val stableId = GatewayEndpoint.manual(host = host, port = port).stableId
-            val storedFingerprint = prefs.loadGatewayTlsFingerprint(stableId)?.trim().orEmpty()
-            if (storedFingerprint.isEmpty()) return@collect
-
-            didAutoConnect = true
-            connect(GatewayEndpoint.manual(host = host, port = port))
-          }
-          return@collect
-        }
-
-        val targetStableId = lastDiscoveredStableId.value.trim()
-        if (targetStableId.isEmpty()) return@collect
-        val target = list.firstOrNull { it.stableId == targetStableId } ?: return@collect
-
-        // Security: autoconnect only to previously trusted gateways (stored TLS pin).
-        val storedFingerprint = prefs.loadGatewayTlsFingerprint(target.stableId)?.trim().orEmpty()
-        if (storedFingerprint.isEmpty()) return@collect
-
-        didAutoConnect = true
-        connect(target)
-      }
-    }
+    gw.startAutoConnect()
 
     scope.launch {
       combine(
         canvasDebugStatusEnabled,
-        statusText,
-        serverName,
-        remoteAddress,
+        gw.statusText,
+        gw.serverName,
+        gw.remoteAddress,
       ) { debugEnabled, status, server, remote ->
         Quad(debugEnabled, status, server, remote)
       }.distinctUntilChanged()
@@ -556,90 +394,28 @@ class NodeRuntime(context: Context) {
     voice.setSpeakerEnabled(value)
   }
 
-  fun refreshGatewayConnection() {
-    val endpoint =
-      connectedEndpoint ?: run {
-        _statusText.value = "Failed: no cached gateway endpoint"
-        return
-      }
-    operatorStatusText = "Connecting…"
-    updateStatus()
-    val token = prefs.loadGatewayToken()
-    val password = prefs.loadGatewayPassword()
-    val tls = connectionManager.resolveTlsParams(endpoint)
-    operatorSession.connect(endpoint, token, password, connectionManager.buildOperatorConnectOptions(), tls)
-    nodeSession.connect(endpoint, token, password, connectionManager.buildNodeConnectOptions(), tls)
-    operatorSession.reconnect()
-    nodeSession.reconnect()
-  }
+  fun connect(endpoint: GatewayEndpoint) = gw.connect(endpoint)
 
-  fun connect(endpoint: GatewayEndpoint) {
-    val tls = connectionManager.resolveTlsParams(endpoint)
-    if (tls?.required == true && tls.expectedFingerprint.isNullOrBlank()) {
-      // First-time TLS: capture fingerprint, ask user to verify out-of-band, then store and connect.
-      _statusText.value = "Verify gateway TLS fingerprint…"
-      scope.launch {
-        val fp = probeGatewayTlsFingerprint(endpoint.host, endpoint.port) ?: run {
-          _statusText.value = "Failed: can't read TLS fingerprint"
-          return@launch
-        }
-        _pendingGatewayTrust.value = GatewayTrustPrompt(endpoint = endpoint, fingerprintSha256 = fp)
-      }
-      return
-    }
+  fun connectManual() = gw.connectManual()
 
-    connectedEndpoint = endpoint
-    operatorStatusText = "Connecting…"
-    nodeStatusText = "Connecting…"
-    updateStatus()
-    val token = prefs.loadGatewayToken()
-    val password = prefs.loadGatewayPassword()
-    operatorSession.connect(endpoint, token, password, connectionManager.buildOperatorConnectOptions(), tls)
-    nodeSession.connect(endpoint, token, password, connectionManager.buildNodeConnectOptions(), tls)
-  }
+  fun disconnect() = gw.disconnect()
 
-  fun acceptGatewayTrustPrompt() {
-    val prompt = _pendingGatewayTrust.value ?: return
-    _pendingGatewayTrust.value = null
-    prefs.saveGatewayTlsFingerprint(prompt.endpoint.stableId, prompt.fingerprintSha256)
-    connect(prompt.endpoint)
-  }
+  fun refreshGatewayConnection() = gw.refreshGatewayConnection()
 
-  fun declineGatewayTrustPrompt() {
-    _pendingGatewayTrust.value = null
-    _statusText.value = "Offline"
-  }
+  fun acceptGatewayTrustPrompt() = gw.acceptGatewayTrustPrompt()
 
-  private fun hasRecordAudioPermission(): Boolean {
-    return (
-      ContextCompat.checkSelfPermission(appContext, Manifest.permission.RECORD_AUDIO) ==
-        PackageManager.PERMISSION_GRANTED
-      )
-  }
+  fun declineGatewayTrustPrompt() = gw.declineGatewayTrustPrompt()
 
-  fun connectManual() {
-    val host = manualHost.value.trim()
-    val port = manualPort.value
-    if (host.isEmpty() || port <= 0 || port > 65535) {
-      _statusText.value = "Failed: invalid manual host/port"
-      return
-    }
-    connect(GatewayEndpoint.manual(host = host, port = port))
-  }
-
-  fun disconnect() {
-    connectedEndpoint = null
-    _pendingGatewayTrust.value = null
-    operatorSession.disconnect()
-    nodeSession.disconnect()
-  }
+  private fun hasRecordAudioPermission(): Boolean =
+    ContextCompat.checkSelfPermission(appContext, Manifest.permission.RECORD_AUDIO) ==
+      PackageManager.PERMISSION_GRANTED
 
   fun handleCanvasA2UIActionFromWebView(payloadJson: String) {
     canvasManager.handleCanvasA2UIActionFromWebView(payloadJson)
   }
 
   fun loadChat(sessionKey: String) {
-    val key = sessionKey.trim().ifEmpty { resolveMainSessionKey() }
+    val key = sessionKey.trim().ifEmpty { gw.resolveMainSessionKey() }
     chat.load(key)
   }
 
@@ -670,25 +446,6 @@ class NodeRuntime(context: Context) {
   private fun handleGatewayEvent(event: String, payloadJson: String?) {
     voice.handleGatewayEvent(event, payloadJson)
     chat.handleGatewayEvent(event, payloadJson)
-  }
-
-  private suspend fun refreshBrandingFromGateway() {
-    if (!_isConnected.value) return
-    try {
-      val res = operatorSession.request("config.get", "{}")
-      val root = json.parseToJsonElement(res).asObjectOrNull()
-      val config = root?.get("config").asObjectOrNull()
-      val ui = config?.get("ui").asObjectOrNull()
-      val raw = ui?.get("seamColor").asStringOrNull()?.trim()
-      val sessionCfg = config?.get("session").asObjectOrNull()
-      val mainKey = normalizeMainKey(sessionCfg?.get("mainKey").asStringOrNull())
-      applyMainSessionKey(mainKey)
-
-      val parsed = parseHexColorArgb(raw)
-      _seamColorArgb.value = parsed ?: DEFAULT_SEAM_COLOR_ARGB
-    } catch (_: Throwable) {
-      // ignore
-    }
   }
 
   private fun triggerCameraFlash() {
