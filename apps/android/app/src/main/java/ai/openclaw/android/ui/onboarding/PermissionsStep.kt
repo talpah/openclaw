@@ -1,7 +1,6 @@
 package ai.openclaw.android.ui.onboarding
 
 import android.Manifest
-import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,45 +19,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-internal fun PermissionsStep(
-  enableDiscovery: Boolean,
-  enableLocation: Boolean,
-  enableNotifications: Boolean,
-  enableNotificationListener: Boolean,
-  enableAppUpdates: Boolean,
-  enableMicrophone: Boolean,
-  enableCamera: Boolean,
-  enablePhotos: Boolean,
-  enableContacts: Boolean,
-  enableCalendar: Boolean,
-  enableMotion: Boolean,
-  motionAvailable: Boolean,
-  motionPermissionRequired: Boolean,
-  enableSms: Boolean,
-  smsAvailable: Boolean,
-  context: Context,
-  onDiscoveryChange: (Boolean) -> Unit,
-  onLocationChange: (Boolean) -> Unit,
-  onNotificationsChange: (Boolean) -> Unit,
-  onNotificationListenerChange: (Boolean) -> Unit,
-  onAppUpdatesChange: (Boolean) -> Unit,
-  onMicrophoneChange: (Boolean) -> Unit,
-  onCameraChange: (Boolean) -> Unit,
-  onPhotosChange: (Boolean) -> Unit,
-  onContactsChange: (Boolean) -> Unit,
-  onCalendarChange: (Boolean) -> Unit,
-  onMotionChange: (Boolean) -> Unit,
-  onSmsChange: (Boolean) -> Unit,
-) {
+internal fun PermissionsStep(state: OnboardingPermissionState) {
+  val context = state.context
   val discoveryPermission =
     if (Build.VERSION.SDK_INT >= 33) Manifest.permission.NEARBY_WIFI_DEVICES
     else Manifest.permission.ACCESS_FINE_LOCATION
-  val locationGranted =
-    isPermissionGranted(context, Manifest.permission.ACCESS_FINE_LOCATION) ||
-      isPermissionGranted(context, Manifest.permission.ACCESS_COARSE_LOCATION)
   val photosPermission =
     if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES
     else Manifest.permission.READ_EXTERNAL_STORAGE
+  val locationGranted =
+    isPermissionGranted(context, Manifest.permission.ACCESS_FINE_LOCATION) ||
+      isPermissionGranted(context, Manifest.permission.ACCESS_COARSE_LOCATION)
   val contactsGranted =
     isPermissionGranted(context, Manifest.permission.READ_CONTACTS) &&
       isPermissionGranted(context, Manifest.permission.WRITE_CONTACTS)
@@ -67,8 +38,8 @@ internal fun PermissionsStep(
       isPermissionGranted(context, Manifest.permission.WRITE_CALENDAR)
   val motionGranted =
     when {
-      !motionAvailable -> false
-      !motionPermissionRequired -> true
+      !state.motionAvailable -> false
+      !state.motionPermissionRequired -> true
       else -> isPermissionGranted(context, Manifest.permission.ACTIVITY_RECOGNITION)
     }
   val notificationListenerGranted = isNotificationListenerEnabled(context)
@@ -83,102 +54,102 @@ internal fun PermissionsStep(
     PermissionToggleRow(
       title = "Gateway discovery",
       subtitle = if (Build.VERSION.SDK_INT >= 33) "Nearby devices" else "Location (for NSD)",
-      checked = enableDiscovery,
+      checked = state.enableDiscovery,
       granted = isPermissionGranted(context, discoveryPermission),
-      onCheckedChange = onDiscoveryChange,
+      onCheckedChange = state.onDiscoveryChange,
     )
     InlineDivider()
     PermissionToggleRow(
       title = "Location",
       subtitle = "location.get (while app is open unless set to Always later)",
-      checked = enableLocation,
+      checked = state.enableLocation,
       granted = locationGranted,
-      onCheckedChange = onLocationChange,
+      onCheckedChange = state.onLocationChange,
     )
     InlineDivider()
     if (Build.VERSION.SDK_INT >= 33) {
       PermissionToggleRow(
         title = "Notifications",
         subtitle = "system.notify and foreground alerts",
-        checked = enableNotifications,
+        checked = state.enableNotifications,
         granted = isPermissionGranted(context, Manifest.permission.POST_NOTIFICATIONS),
-        onCheckedChange = onNotificationsChange,
+        onCheckedChange = state.onNotificationsChange,
       )
       InlineDivider()
     }
     PermissionToggleRow(
       title = "Notification listener",
       subtitle = "notifications.list and notifications.actions (opens Android Settings)",
-      checked = enableNotificationListener,
+      checked = state.enableNotificationListener,
       granted = notificationListenerGranted,
-      onCheckedChange = onNotificationListenerChange,
+      onCheckedChange = state.onNotificationListenerChange,
     )
     InlineDivider()
     PermissionToggleRow(
       title = "App updates",
       subtitle = "app.update install confirmation (opens Android Settings)",
-      checked = enableAppUpdates,
+      checked = state.enableAppUpdates,
       granted = appUpdatesGranted,
-      onCheckedChange = onAppUpdatesChange,
+      onCheckedChange = state.onAppUpdatesChange,
     )
     InlineDivider()
     PermissionToggleRow(
       title = "Microphone",
       subtitle = "Voice tab transcription",
-      checked = enableMicrophone,
+      checked = state.enableMicrophone,
       granted = isPermissionGranted(context, Manifest.permission.RECORD_AUDIO),
-      onCheckedChange = onMicrophoneChange,
+      onCheckedChange = state.onMicrophoneChange,
     )
     InlineDivider()
     PermissionToggleRow(
       title = "Camera",
       subtitle = "camera.snap and camera.clip",
-      checked = enableCamera,
+      checked = state.enableCamera,
       granted = isPermissionGranted(context, Manifest.permission.CAMERA),
-      onCheckedChange = onCameraChange,
+      onCheckedChange = state.onCameraChange,
     )
     InlineDivider()
     PermissionToggleRow(
       title = "Photos",
       subtitle = "photos.latest",
-      checked = enablePhotos,
+      checked = state.enablePhotos,
       granted = isPermissionGranted(context, photosPermission),
-      onCheckedChange = onPhotosChange,
+      onCheckedChange = state.onPhotosChange,
     )
     InlineDivider()
     PermissionToggleRow(
       title = "Contacts",
       subtitle = "contacts.search and contacts.add",
-      checked = enableContacts,
+      checked = state.enableContacts,
       granted = contactsGranted,
-      onCheckedChange = onContactsChange,
+      onCheckedChange = state.onContactsChange,
     )
     InlineDivider()
     PermissionToggleRow(
       title = "Calendar",
       subtitle = "calendar.events and calendar.add",
-      checked = enableCalendar,
+      checked = state.enableCalendar,
       granted = calendarGranted,
-      onCheckedChange = onCalendarChange,
+      onCheckedChange = state.onCalendarChange,
     )
     InlineDivider()
     PermissionToggleRow(
       title = "Motion",
       subtitle = "motion.activity and motion.pedometer",
-      checked = enableMotion,
+      checked = state.enableMotion,
       granted = motionGranted,
-      onCheckedChange = onMotionChange,
-      enabled = motionAvailable,
-      statusOverride = if (!motionAvailable) "Unavailable on this device" else null,
+      onCheckedChange = state.onMotionChange,
+      enabled = state.motionAvailable,
+      statusOverride = if (!state.motionAvailable) "Unavailable on this device" else null,
     )
-    if (smsAvailable) {
+    if (state.smsAvailable) {
       InlineDivider()
       PermissionToggleRow(
         title = "SMS",
         subtitle = "Allow gateway-triggered SMS sending",
-        checked = enableSms,
+        checked = state.enableSms,
         granted = isPermissionGranted(context, Manifest.permission.SEND_SMS),
-        onCheckedChange = onSmsChange,
+        onCheckedChange = state.onSmsChange,
       )
     }
     Text(
