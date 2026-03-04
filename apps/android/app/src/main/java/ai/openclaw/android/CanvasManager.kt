@@ -84,7 +84,7 @@ internal class CanvasManager(
     scope.launch {
       if (!isNodeConnected()) {
         _canvasRehydratePending.value = false
-        _canvasRehydrateErrorText.value = "Node offline. Reconnect and retry."
+        _canvasRehydrateErrorText.value = "Not connected. Reconnect and try again."
         return@launch
       }
       if (!force && didAutoRequestCanvasRehydrate) return@launch

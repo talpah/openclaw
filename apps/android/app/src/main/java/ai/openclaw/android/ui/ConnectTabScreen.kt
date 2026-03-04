@@ -168,7 +168,7 @@ fun ConnectTabScreen(viewModel: MainViewModel) {
           validationText = null
           return@Button
         }
-        if (statusText.contains("operator offline", ignoreCase = true)) {
+        if (statusText.contains("reconnecting", ignoreCase = true)) {
           validationText = null
           viewModel.refreshGatewayConnection()
           return@Button

@@ -200,7 +200,7 @@ internal class GatewayConnectionManager(
       _statusText.value = "Verify gateway TLS fingerprint…"
       scope.launch {
         val fp = probeGatewayTlsFingerprint(endpoint.host, endpoint.port) ?: run {
-          _statusText.value = "Failed: can't read TLS fingerprint"
+          _statusText.value = "Connection failed: couldn't verify TLS certificate"
           return@launch
         }
         _pendingGatewayTrust.value = GatewayTrustPrompt(endpoint = endpoint, fingerprintSha256 = fp)
@@ -221,7 +221,7 @@ internal class GatewayConnectionManager(
     val host = prefs.manualHost.value.trim()
     val port = prefs.manualPort.value
     if (host.isEmpty() || port <= 0 || port > 65535) {
-      _statusText.value = "Failed: invalid manual host/port"
+      _statusText.value = "Invalid address — check host and port"
       return
     }
     connect(GatewayEndpoint.manual(host = host, port = port))
@@ -236,7 +236,7 @@ internal class GatewayConnectionManager(
 
   fun refreshGatewayConnection() {
     val endpoint = connectedEndpoint ?: run {
-      _statusText.value = "Failed: no cached gateway endpoint"
+      _statusText.value = "Not connected to any gateway"
       return
     }
     operatorStatusText = "Connecting…"
@@ -284,12 +284,12 @@ internal class GatewayConnectionManager(
     _statusText.value =
       when {
         operatorConnected && _nodeConnected.value -> "Connected"
-        operatorConnected && !_nodeConnected.value -> "Connected (node offline)"
+        operatorConnected && !_nodeConnected.value -> "Connected (limited)"
         !operatorConnected && _nodeConnected.value ->
           if (operator.isNotEmpty() && operator != "Offline") {
-            "Connected (operator: $operator)"
+            "Connected ($operator)"
           } else {
-            "Connected (operator offline)"
+            "Connected (reconnecting…)"
           }
         operator.isNotBlank() && operator != "Offline" -> operator
         else -> node

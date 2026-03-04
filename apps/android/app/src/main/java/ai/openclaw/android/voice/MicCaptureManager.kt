@@ -200,7 +200,7 @@ class MicCaptureManager(
         }
         startListeningSession()
       } catch (err: Throwable) {
-        _statusText.value = "Start failed: ${err.message ?: err::class.simpleName}"
+        _statusText.value = "Microphone failed to start. Please try again."
         _micEnabled.value = false
       }
     }
