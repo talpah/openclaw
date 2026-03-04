@@ -6,6 +6,7 @@ import ai.openclaw.android.gateway.DeviceIdentityStore
 import ai.openclaw.android.gateway.GatewayEndpoint
 import ai.openclaw.android.gateway.GatewayHealthMonitor
 import ai.openclaw.android.gateway.GatewaySession
+import ai.openclaw.android.gateway.TlsProbeResult
 import ai.openclaw.android.gateway.probeGatewayTlsFingerprint
 import ai.openclaw.android.node.*
 import kotlinx.coroutines.CoroutineScope
@@ -199,11 +200,19 @@ internal class GatewayConnectionManager(
     if (tls?.required == true && tls.expectedFingerprint.isNullOrBlank()) {
       _statusText.value = "Verify gateway TLS fingerprint…"
       scope.launch {
-        val fp = probeGatewayTlsFingerprint(endpoint.host, endpoint.port) ?: run {
-          _statusText.value = "Connection failed: couldn't verify TLS certificate"
-          return@launch
+        when (val probe = probeGatewayTlsFingerprint(endpoint.host, endpoint.port)) {
+          is TlsProbeResult.ConnectFailed -> {
+            _statusText.value = "Connection failed: couldn't reach gateway"
+            return@launch
+          }
+          is TlsProbeResult.TlsFailed -> {
+            _statusText.value = "Connection failed: couldn't verify TLS certificate"
+            return@launch
+          }
+          is TlsProbeResult.Success -> {
+            _pendingGatewayTrust.value = GatewayTrustPrompt(endpoint = endpoint, fingerprintSha256 = probe.fingerprint)
+          }
         }
-        _pendingGatewayTrust.value = GatewayTrustPrompt(endpoint = endpoint, fingerprintSha256 = fp)
       }
       return
     }

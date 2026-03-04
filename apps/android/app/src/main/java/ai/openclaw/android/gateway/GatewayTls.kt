@@ -1,6 +1,7 @@
 package ai.openclaw.android.gateway
 
 import android.annotation.SuppressLint
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
@@ -81,14 +82,20 @@ fun buildGatewayTlsConfig(
   )
 }
 
+sealed class TlsProbeResult {
+  data class Success(val fingerprint: String) : TlsProbeResult()
+  data object ConnectFailed : TlsProbeResult()
+  data object TlsFailed : TlsProbeResult()
+}
+
 suspend fun probeGatewayTlsFingerprint(
   host: String,
   port: Int,
   timeoutMs: Int = 3_000,
-): String? {
+): TlsProbeResult {
   val trimmedHost = host.trim()
-  if (trimmedHost.isEmpty()) return null
-  if (port !in 1..65535) return null
+  if (trimmedHost.isEmpty()) return TlsProbeResult.ConnectFailed
+  if (port !in 1..65535) return TlsProbeResult.ConnectFailed
 
   return withContext(Dispatchers.IO) {
     val trustAll =
@@ -107,7 +114,14 @@ suspend fun probeGatewayTlsFingerprint(
     val socket = (context.socketFactory.createSocket() as SSLSocket)
     try {
       socket.soTimeout = timeoutMs
-      socket.connect(InetSocketAddress(trimmedHost, port), timeoutMs)
+      try {
+        Log.d("GatewayTls", "probe: connecting to $trimmedHost:$port")
+        socket.connect(InetSocketAddress(trimmedHost, port), timeoutMs)
+        Log.d("GatewayTls", "probe: TCP connected")
+      } catch (e: Throwable) {
+        Log.w("GatewayTls", "probe: connect failed: ${e.javaClass.simpleName}: ${e.message}")
+        return@withContext TlsProbeResult.ConnectFailed
+      }
 
       // Best-effort SNI for hostnames (avoid crashing on IP literals).
       try {
@@ -120,11 +134,19 @@ suspend fun probeGatewayTlsFingerprint(
         // ignore
       }
 
-      socket.startHandshake()
-      val cert = socket.session.peerCertificates.firstOrNull() as? X509Certificate ?: return@withContext null
-      sha256Hex(cert.encoded)
-    } catch (_: Throwable) {
-      null
+      try {
+        socket.startHandshake()
+        Log.d("GatewayTls", "probe: TLS handshake complete")
+      } catch (e: Throwable) {
+        Log.w("GatewayTls", "probe: TLS handshake failed: ${e.javaClass.simpleName}: ${e.message}")
+        return@withContext TlsProbeResult.TlsFailed
+      }
+
+      val cert = socket.session.peerCertificates.firstOrNull() as? X509Certificate
+        ?: return@withContext TlsProbeResult.TlsFailed
+      val fp = sha256Hex(cert.encoded)
+      Log.d("GatewayTls", "probe: fingerprint=$fp")
+      TlsProbeResult.Success(fp)
     } finally {
       try {
         socket.close()

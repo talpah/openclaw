@@ -53,6 +53,52 @@ class GatewayConfigResolverTest {
     assertNull(resolved)
   }
 
+  // ── parseGatewayEndpoint port defaulting ─────────────────────────────────
+
+  @Test
+  fun parseGatewayEndpointWssNoPortDefaultsTo443() {
+    val result = parseGatewayEndpoint("wss://smarty.tailc0f6de.ts.net")
+    assertEquals(443, result?.port)
+    assertEquals(true, result?.tls)
+    assertEquals("smarty.tailc0f6de.ts.net", result?.host)
+  }
+
+  @Test
+  fun parseGatewayEndpointHttpsNoPortDefaultsTo443() {
+    val result = parseGatewayEndpoint("https://gateway.example.com")
+    assertEquals(443, result?.port)
+    assertEquals(true, result?.tls)
+  }
+
+  @Test
+  fun parseGatewayEndpointWsNoPortDefaultsTo80() {
+    val result = parseGatewayEndpoint("ws://gateway.local")
+    assertEquals(80, result?.port)
+    assertEquals(false, result?.tls)
+  }
+
+  @Test
+  fun parseGatewayEndpointHttpNoPortDefaultsTo80() {
+    val result = parseGatewayEndpoint("http://10.0.2.2")
+    assertEquals(80, result?.port)
+    assertEquals(false, result?.tls)
+  }
+
+  @Test
+  fun parseGatewayEndpointExplicitPortOverridesDefault() {
+    val result = parseGatewayEndpoint("wss://gateway.example.com:18789")
+    assertEquals(18789, result?.port)
+    assertEquals(true, result?.tls)
+  }
+
+  @Test
+  fun parseGatewayEndpointNoSchemeNormalizesToHttpsAndPort443() {
+    // Bare hostnames get normalized to https:// by the parser.
+    val result = parseGatewayEndpoint("gateway.local")
+    assertEquals(443, result?.port)
+    assertEquals(true, result?.tls)
+  }
+
   private fun encodeSetupCode(payloadJson: String): String {
     return Base64.getUrlEncoder().withoutPadding().encodeToString(payloadJson.toByteArray(Charsets.UTF_8))
   }

@@ -1,6 +1,6 @@
 package ai.openclaw.android.ui
 
-import androidx.core.net.toUri
+import java.net.URI
 import java.util.Base64
 import java.util.Locale
 import kotlinx.serialization.json.Json
@@ -69,7 +69,7 @@ internal fun parseGatewayEndpoint(rawInput: String): GatewayEndpointConfig? {
   if (raw.isEmpty()) return null
 
   val normalized = if (raw.contains("://")) raw else "https://$raw"
-  val uri = normalized.toUri()
+  val uri = try { URI(normalized) } catch (_: Throwable) { return null }
   val host = uri.host?.trim().orEmpty()
   if (host.isEmpty()) return null
 
@@ -80,7 +80,13 @@ internal fun parseGatewayEndpoint(rawInput: String): GatewayEndpointConfig? {
       "wss", "https" -> true
       else -> true
     }
-  val port = uri.port.takeIf { it in 1..65535 } ?: 18789
+  val defaultPort =
+    when (scheme) {
+      "wss", "https" -> 443
+      "ws", "http" -> 80
+      else -> 18789
+    }
+  val port = uri.port.takeIf { it in 1..65535 } ?: defaultPort
   val displayUrl = "${if (tls) "https" else "http"}://$host:$port"
 
   return GatewayEndpointConfig(host = host, port = port, tls = tls, displayUrl = displayUrl)
