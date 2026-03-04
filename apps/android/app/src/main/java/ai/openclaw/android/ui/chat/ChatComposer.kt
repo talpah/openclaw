@@ -3,13 +3,11 @@ package ai.openclaw.android.ui.chat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -17,17 +15,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -53,7 +46,6 @@ import ai.openclaw.android.ui.mobileBorder
 import ai.openclaw.android.ui.mobileBorderStrong
 import ai.openclaw.android.ui.mobileCallout
 import ai.openclaw.android.ui.mobileCaption1
-import ai.openclaw.android.ui.mobileHeadline
 import ai.openclaw.android.ui.mobileSurface
 import ai.openclaw.android.ui.mobileText
 import ai.openclaw.android.ui.mobileTextSecondary
@@ -62,21 +54,16 @@ import ai.openclaw.android.ui.mobileTextTertiary
 @Composable
 fun ChatComposer(
   healthOk: Boolean,
-  thinkingLevel: String,
   pendingRunCount: Int,
   attachments: List<PendingImageAttachment>,
   onPickImages: () -> Unit,
   onRemoveAttachment: (id: String) -> Unit,
-  onSetThinkingLevel: (level: String) -> Unit,
-  onRefresh: () -> Unit,
   onAbort: () -> Unit,
   onSend: (text: String) -> Unit,
   initialText: String = "",
 ) {
   var input by rememberSaveable { mutableStateOf("") }
-  var showThinkingMenu by remember { mutableStateOf(false) }
 
-  // Inject share-intent text when the caller provides it (fires once per non-empty value).
   LaunchedEffect(initialText) {
     if (initialText.isNotEmpty()) input = initialText
   }
@@ -84,72 +71,10 @@ fun ChatComposer(
   val canSend = pendingRunCount == 0 && (input.trim().isNotEmpty() || attachments.isNotEmpty()) && healthOk
   val sendBusy = pendingRunCount > 0
 
-  Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-      Box(modifier = Modifier.weight(1f)) {
-        Surface(
-          onClick = { showThinkingMenu = true },
-          shape = RoundedCornerShape(14.dp),
-          color = mobileAccentSoft,
-          border = BorderStroke(1.dp, mobileBorderStrong),
-        ) {
-          Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-          ) {
-            Text(
-              text = "Thinking: ${thinkingLabel(thinkingLevel)}",
-              style = mobileCaption1.copy(fontWeight = FontWeight.SemiBold),
-              color = mobileText,
-            )
-            Icon(Icons.Default.ArrowDropDown, contentDescription = "Select thinking level", tint = mobileTextSecondary)
-          }
-        }
-
-        DropdownMenu(expanded = showThinkingMenu, onDismissRequest = { showThinkingMenu = false }) {
-          ThinkingMenuItem("off", thinkingLevel, onSetThinkingLevel) { showThinkingMenu = false }
-          ThinkingMenuItem("low", thinkingLevel, onSetThinkingLevel) { showThinkingMenu = false }
-          ThinkingMenuItem("medium", thinkingLevel, onSetThinkingLevel) { showThinkingMenu = false }
-          ThinkingMenuItem("high", thinkingLevel, onSetThinkingLevel) { showThinkingMenu = false }
-        }
-      }
-
-      SecondaryActionButton(
-        label = "Attach",
-        icon = Icons.Default.AttachFile,
-        enabled = true,
-        onClick = onPickImages,
-      )
-    }
-
+  Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
     if (attachments.isNotEmpty()) {
       AttachmentsStrip(attachments = attachments, onRemoveAttachment = onRemoveAttachment)
     }
-
-    HorizontalDivider(color = mobileBorder)
-
-    Text(
-      text = "MESSAGE",
-      style = mobileCaption1.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.9.sp),
-      color = mobileTextSecondary,
-    )
-
-    OutlinedTextField(
-      value = input,
-      onValueChange = { input = it },
-      modifier = Modifier.fillMaxWidth().height(92.dp),
-      placeholder = { Text("Type a message", style = mobileBodyStyle(), color = mobileTextTertiary) },
-      minLines = 2,
-      maxLines = 5,
-      textStyle = mobileBodyStyle().copy(color = mobileText),
-      shape = RoundedCornerShape(14.dp),
-      colors = chatTextFieldColors(),
-    )
 
     if (!healthOk) {
       Text(
@@ -161,35 +86,43 @@ fun ChatComposer(
 
     Row(
       modifier = Modifier.fillMaxWidth(),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(10.dp),
+      verticalAlignment = Alignment.Bottom,
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        SecondaryActionButton(
-          label = "Refresh",
-          icon = Icons.Default.Refresh,
-          enabled = true,
-          compact = true,
-          onClick = onRefresh,
-        )
-
-        SecondaryActionButton(
-          label = "Abort",
-          icon = Icons.Default.Stop,
-          enabled = pendingRunCount > 0,
-          compact = true,
-          onClick = onAbort,
-        )
-      }
+      OutlinedTextField(
+        value = input,
+        onValueChange = { input = it },
+        modifier = Modifier.weight(1f),
+        placeholder = { Text("Enter message here...", style = mobileBodyStyle(), color = mobileTextTertiary) },
+        minLines = 1,
+        maxLines = 5,
+        textStyle = mobileBodyStyle().copy(color = mobileText),
+        shape = RoundedCornerShape(14.dp),
+        colors = chatTextFieldColors(),
+        leadingIcon = {
+          IconButton(onClick = onPickImages, modifier = Modifier.size(36.dp)) {
+            Icon(
+              Icons.Default.AttachFile,
+              contentDescription = "Attach",
+              tint = mobileTextSecondary,
+              modifier = Modifier.size(20.dp),
+            )
+          }
+        },
+      )
 
       Button(
         onClick = {
-          val text = input
-          input = ""
-          onSend(text)
+          if (sendBusy) {
+            onAbort()
+          } else {
+            val text = input
+            input = ""
+            onSend(text)
+          }
         },
-        enabled = canSend,
-        modifier = Modifier.weight(1f).height(48.dp),
+        enabled = sendBusy || canSend,
+        modifier = Modifier.size(48.dp),
         shape = RoundedCornerShape(14.dp),
         colors =
           ButtonDefaults.buttonColors(
@@ -198,89 +131,16 @@ fun ChatComposer(
             disabledContainerColor = mobileBorderStrong,
             disabledContentColor = mobileTextTertiary,
           ),
-        border = BorderStroke(1.dp, if (canSend) Color(0xFF154CAD) else mobileBorderStrong),
+        border = BorderStroke(1.dp, if (sendBusy || canSend) Color(0xFF154CAD) else mobileBorderStrong),
+        contentPadding = PaddingValues(0.dp),
       ) {
-        if (sendBusy) {
-          CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
-        } else {
-          Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
-        }
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-          text = "Send",
-          style = mobileHeadline.copy(fontWeight = FontWeight.Bold),
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
+        Icon(
+          imageVector = if (sendBusy) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send,
+          contentDescription = if (sendBusy) "Stop" else "Send",
+          modifier = Modifier.size(18.dp),
         )
       }
     }
-  }
-}
-
-@Composable
-private fun SecondaryActionButton(
-  label: String,
-  icon: androidx.compose.ui.graphics.vector.ImageVector,
-  enabled: Boolean,
-  compact: Boolean = false,
-  onClick: () -> Unit,
-) {
-  Button(
-    onClick = onClick,
-    enabled = enabled,
-    modifier = if (compact) Modifier.size(44.dp) else Modifier.height(44.dp),
-    shape = RoundedCornerShape(14.dp),
-    colors =
-      ButtonDefaults.buttonColors(
-        containerColor = Color.White,
-        contentColor = mobileTextSecondary,
-        disabledContainerColor = Color.White,
-        disabledContentColor = mobileTextTertiary,
-      ),
-    border = BorderStroke(1.dp, mobileBorderStrong),
-    contentPadding = if (compact) PaddingValues(0.dp) else ButtonDefaults.ContentPadding,
-  ) {
-    Icon(icon, contentDescription = label, modifier = Modifier.size(14.dp))
-    if (!compact) {
-      Spacer(modifier = Modifier.width(5.dp))
-      Text(
-        text = label,
-        style = mobileCallout.copy(fontWeight = FontWeight.SemiBold),
-        color = if (enabled) mobileTextSecondary else mobileTextTertiary,
-      )
-    }
-  }
-}
-
-@Composable
-private fun ThinkingMenuItem(
-  value: String,
-  current: String,
-  onSet: (String) -> Unit,
-  onDismiss: () -> Unit,
-) {
-  DropdownMenuItem(
-    text = { Text(thinkingLabel(value), style = mobileCallout, color = mobileText) },
-    onClick = {
-      onSet(value)
-      onDismiss()
-    },
-    trailingIcon = {
-      if (value == current.trim().lowercase()) {
-        Text("✓", style = mobileCallout, color = mobileAccent)
-      } else {
-        Spacer(modifier = Modifier.width(10.dp))
-      }
-    },
-  )
-}
-
-private fun thinkingLabel(raw: String): String {
-  return when (raw.trim().lowercase()) {
-    "low" -> "Low"
-    "medium" -> "Medium"
-    "high" -> "High"
-    else -> "Off"
   }
 }
 
