@@ -19,7 +19,6 @@ import ai.openclaw.android.gateway.GatewayHealthMonitor
 import ai.openclaw.android.gateway.GatewaySession
 import ai.openclaw.android.gateway.probeGatewayTlsFingerprint
 import ai.openclaw.android.node.*
-import ai.openclaw.android.protocol.OpenClawCanvasA2UIAction
 import ai.openclaw.android.voice.VoiceConversationEntry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,9 +31,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
 import java.util.concurrent.atomic.AtomicLong
 
 class NodeRuntime(context: Context) {
@@ -171,12 +167,8 @@ class NodeRuntime(context: Context) {
     smsAvailable = { sms.canSendSms() },
     debugBuild = { BuildConfig.DEBUG },
     refreshNodeCanvasCapability = { nodeSession.refreshNodeCanvasCapability() },
-    onCanvasA2uiPush = {
-      _canvasA2uiHydrated.value = true
-      _canvasRehydratePending.value = false
-      _canvasRehydrateErrorText.value = null
-    },
-    onCanvasA2uiReset = { _canvasA2uiHydrated.value = false },
+    onCanvasA2uiPush = { canvasManager.onA2uiPush() },
+    onCanvasA2uiReset = { canvasManager.onA2uiReset() },
     motionActivityAvailable = { motionHandler.isActivityAvailable() },
     motionPedometerAvailable = { motionHandler.isPedometerAvailable() },
   )
@@ -210,12 +202,9 @@ class NodeRuntime(context: Context) {
   private val _screenRecordActive = MutableStateFlow(false)
   val screenRecordActive: StateFlow<Boolean> = _screenRecordActive.asStateFlow()
 
-  private val _canvasA2uiHydrated = MutableStateFlow(false)
-  val canvasA2uiHydrated: StateFlow<Boolean> = _canvasA2uiHydrated.asStateFlow()
-  private val _canvasRehydratePending = MutableStateFlow(false)
-  val canvasRehydratePending: StateFlow<Boolean> = _canvasRehydratePending.asStateFlow()
-  private val _canvasRehydrateErrorText = MutableStateFlow<String?>(null)
-  val canvasRehydrateErrorText: StateFlow<String?> = _canvasRehydrateErrorText.asStateFlow()
+  val canvasA2uiHydrated: StateFlow<Boolean> get() = canvasManager.canvasA2uiHydrated
+  val canvasRehydratePending: StateFlow<Boolean> get() = canvasManager.canvasRehydratePending
+  val canvasRehydrateErrorText: StateFlow<String?> get() = canvasManager.canvasRehydrateErrorText
 
   private val _serverName = MutableStateFlow<String?>(null)
   val serverName: StateFlow<String?> = _serverName.asStateFlow()
@@ -229,9 +218,6 @@ class NodeRuntime(context: Context) {
   private val _isForeground = MutableStateFlow(true)
   val isForeground: StateFlow<Boolean> = _isForeground.asStateFlow()
 
-  private var lastAutoA2uiUrl: String? = null
-  private var didAutoRequestCanvasRehydrate = false
-  private val canvasRehydrateSeq = AtomicLong(0)
   private var operatorConnected = false
   private var operatorStatusText: String = "Offline"
   private var nodeStatusText: String = "Offline"
@@ -304,22 +290,14 @@ class NodeRuntime(context: Context) {
       onConnected = { _, _, _ ->
         _nodeConnected.value = true
         nodeStatusText = "Connected"
-        didAutoRequestCanvasRehydrate = false
-        _canvasA2uiHydrated.value = false
-        _canvasRehydratePending.value = false
-        _canvasRehydrateErrorText.value = null
         updateStatus()
-        maybeNavigateToA2uiOnConnect()
+        canvasManager.onNodeConnected()
       },
       onDisconnected = { message ->
         _nodeConnected.value = false
         nodeStatusText = message
-        didAutoRequestCanvasRehydrate = false
-        _canvasA2uiHydrated.value = false
-        _canvasRehydratePending.value = false
-        _canvasRehydrateErrorText.value = null
         updateStatus()
-        showLocalCanvasOnDisconnect()
+        canvasManager.onNodeDisconnected()
       },
       onEvent = { _, _ -> },
       onInvoke = { req ->
@@ -328,6 +306,19 @@ class NodeRuntime(context: Context) {
       onTlsFingerprint = { stableId, fingerprint ->
         prefs.saveGatewayTlsFingerprint(stableId, fingerprint)
       },
+    )
+
+  private val canvasManager: CanvasManager =
+    CanvasManager(
+      canvas = canvas,
+      scope = scope,
+      json = json,
+      a2uiHandler = a2uiHandler,
+      nodeSession = nodeSession,
+      isNodeConnected = { _nodeConnected.value },
+      resolveMainSessionKey = ::resolveMainSessionKey,
+      displayName = { displayName.value },
+      instanceId = { instanceId.value },
     )
 
   init {
@@ -401,72 +392,8 @@ class NodeRuntime(context: Context) {
     return if (trimmed.isEmpty()) "main" else trimmed
   }
 
-  private fun maybeNavigateToA2uiOnConnect() {
-    val a2uiUrl = a2uiHandler.resolveA2uiHostUrl() ?: return
-    val current = canvas.currentUrl()?.trim().orEmpty()
-    if (current.isEmpty() || current == lastAutoA2uiUrl) {
-      lastAutoA2uiUrl = a2uiUrl
-      canvas.navigate(a2uiUrl)
-    }
-  }
-
-  private fun showLocalCanvasOnDisconnect() {
-    lastAutoA2uiUrl = null
-    _canvasA2uiHydrated.value = false
-    _canvasRehydratePending.value = false
-    _canvasRehydrateErrorText.value = null
-    canvas.navigate("")
-  }
-
   fun requestCanvasRehydrate(source: String = "manual", force: Boolean = true) {
-    scope.launch {
-      if (!_nodeConnected.value) {
-        _canvasRehydratePending.value = false
-        _canvasRehydrateErrorText.value = "Node offline. Reconnect and retry."
-        return@launch
-      }
-      if (!force && didAutoRequestCanvasRehydrate) return@launch
-      didAutoRequestCanvasRehydrate = true
-      val requestId = canvasRehydrateSeq.incrementAndGet()
-      _canvasRehydratePending.value = true
-      _canvasRehydrateErrorText.value = null
-
-      val sessionKey = resolveMainSessionKey()
-      val prompt =
-        "Restore canvas now for session=$sessionKey source=$source. " +
-          "If existing A2UI state exists, replay it immediately. " +
-          "If not, create and render a compact mobile-friendly dashboard in Canvas."
-      val sent =
-        nodeSession.sendNodeEvent(
-          event = "agent.request",
-          payloadJson =
-            buildJsonObject {
-              put("message", JsonPrimitive(prompt))
-              put("sessionKey", JsonPrimitive(sessionKey))
-              put("thinking", JsonPrimitive("low"))
-              put("deliver", JsonPrimitive(false))
-            }.toString(),
-        )
-      if (!sent) {
-        if (!force) {
-          didAutoRequestCanvasRehydrate = false
-        }
-        if (canvasRehydrateSeq.get() == requestId) {
-          _canvasRehydratePending.value = false
-          _canvasRehydrateErrorText.value = "Failed to request restore. Tap to retry."
-        }
-        Log.w("OpenClawCanvas", "canvas rehydrate request failed ($source): transport unavailable")
-        return@launch
-      }
-      scope.launch {
-        delay(20_000)
-        if (canvasRehydrateSeq.get() != requestId) return@launch
-        if (!_canvasRehydratePending.value) return@launch
-        if (_canvasA2uiHydrated.value) return@launch
-        _canvasRehydratePending.value = false
-        _canvasRehydrateErrorText.value = "No canvas update yet. Tap to retry."
-      }
-    }
+    canvasManager.requestCanvasRehydrate(source, force)
   }
 
   val instanceId: StateFlow<String> = prefs.instanceId
@@ -708,75 +635,7 @@ class NodeRuntime(context: Context) {
   }
 
   fun handleCanvasA2UIActionFromWebView(payloadJson: String) {
-    scope.launch {
-      val trimmed = payloadJson.trim()
-      if (trimmed.isEmpty()) return@launch
-
-      val root =
-        try {
-          json.parseToJsonElement(trimmed).asObjectOrNull() ?: return@launch
-        } catch (_: Throwable) {
-          return@launch
-        }
-
-      val userActionObj = (root["userAction"] as? JsonObject) ?: root
-      val actionId = (userActionObj["id"] as? JsonPrimitive)?.content?.trim().orEmpty().ifEmpty {
-        java.util.UUID.randomUUID().toString()
-      }
-      val name = OpenClawCanvasA2UIAction.extractActionName(userActionObj) ?: return@launch
-
-      val surfaceId =
-        (userActionObj["surfaceId"] as? JsonPrimitive)?.content?.trim().orEmpty().ifEmpty { "main" }
-      val sourceComponentId =
-        (userActionObj["sourceComponentId"] as? JsonPrimitive)?.content?.trim().orEmpty().ifEmpty { "-" }
-      val contextJson = (userActionObj["context"] as? JsonObject)?.toString()
-
-      val sessionKey = resolveMainSessionKey()
-      val message =
-        OpenClawCanvasA2UIAction.formatAgentMessage(
-          actionName = name,
-          sessionKey = sessionKey,
-          surfaceId = surfaceId,
-          sourceComponentId = sourceComponentId,
-          host = displayName.value,
-          instanceId = instanceId.value.lowercase(),
-          contextJson = contextJson,
-        )
-
-      val connected = _nodeConnected.value
-      var error: String? = null
-      if (connected) {
-        val sent =
-          nodeSession.sendNodeEvent(
-            event = "agent.request",
-            payloadJson =
-              buildJsonObject {
-                put("message", JsonPrimitive(message))
-                put("sessionKey", JsonPrimitive(sessionKey))
-                put("thinking", JsonPrimitive("low"))
-                put("deliver", JsonPrimitive(false))
-                put("key", JsonPrimitive(actionId))
-              }.toString(),
-          )
-        if (!sent) {
-          error = "send failed"
-        }
-      } else {
-        error = "gateway not connected"
-      }
-
-      try {
-        canvas.eval(
-          OpenClawCanvasA2UIAction.jsDispatchA2UIActionStatus(
-            actionId = actionId,
-            ok = connected && error == null,
-            error = error,
-          ),
-        )
-      } catch (_: Throwable) {
-        // ignore
-      }
-    }
+    canvasManager.handleCanvasA2UIActionFromWebView(payloadJson)
   }
 
   fun loadChat(sessionKey: String) {
