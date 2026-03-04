@@ -20,12 +20,9 @@ import ai.openclaw.android.gateway.GatewaySession
 import ai.openclaw.android.gateway.probeGatewayTlsFingerprint
 import ai.openclaw.android.node.*
 import ai.openclaw.android.protocol.OpenClawCanvasA2UIAction
-import ai.openclaw.android.voice.MicCaptureManager
-import ai.openclaw.android.voice.TalkModeManager
 import ai.openclaw.android.voice.VoiceConversationEntry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,11 +32,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
 class NodeRuntime(context: Context) {
@@ -55,7 +50,7 @@ class NodeRuntime(context: Context) {
   val sms = SmsManager(appContext)
   private val json = Json { ignoreUnknownKeys = true }
 
-  private val externalAudioCaptureActive = MutableStateFlow(false)
+  val externalAudioCaptureActive = MutableStateFlow(false)
 
   private val discovery = GatewayDiscovery(appContext, scope = scope)
   val gateways: StateFlow<List<GatewayEndpoint>> = discovery.gateways
@@ -256,7 +251,7 @@ class NodeRuntime(context: Context) {
         _seamColorArgb.value = DEFAULT_SEAM_COLOR_ARGB
         applyMainSessionKey(mainSessionKey)
         updateStatus()
-        micCapture.onGatewayConnectionChanged(true)
+        voice.onGatewayConnectionChanged(true)
         healthMonitor.start(
           check = {
             try {
@@ -278,9 +273,7 @@ class NodeRuntime(context: Context) {
         )
         scope.launch {
           refreshBrandingFromGateway()
-          if (voiceReplySpeakerLazy.isInitialized()) {
-            voiceReplySpeaker.refreshConfig()
-          }
+          voice.refreshTalkModeConfig()
         }
       },
       onDisconnected = { message ->
@@ -296,7 +289,7 @@ class NodeRuntime(context: Context) {
         chat.applyMainSessionKey(resolveMainSessionKey())
         chat.onDisconnected(message)
         updateStatus()
-        micCapture.onGatewayConnectionChanged(false)
+        voice.onGatewayConnectionChanged(false)
       },
       onEvent = { event, payloadJson ->
         handleGatewayEvent(event, payloadJson)
@@ -352,95 +345,35 @@ class NodeRuntime(context: Context) {
       json = json,
       supportsChatSubscribe = false,
     )
-  private val voiceReplySpeakerLazy: Lazy<TalkModeManager> = lazy {
-    // Reuse the existing TalkMode speech engine (ElevenLabs + deterministic system-TTS fallback)
-    // without enabling the legacy talk capture loop.
-    TalkModeManager(
-      context = appContext,
+
+  private val voice: VoiceCoordinator =
+    VoiceCoordinator(
+      appContext = appContext,
       scope = scope,
+      prefs = prefs,
       session = operatorSession,
-      supportsChatSubscribe = false,
       isConnected = { operatorConnected },
-    ).also { speaker ->
-      speaker.setPlaybackEnabled(prefs.speakerEnabled.value)
-    }
-  }
-  private val voiceReplySpeaker: TalkModeManager
-    get() = voiceReplySpeakerLazy.value
-
-  private val micCapture: MicCaptureManager by lazy {
-    MicCaptureManager(
-      context = appContext,
-      scope = scope,
-      sendToGateway = { message, onRunIdKnown ->
-        val idempotencyKey = UUID.randomUUID().toString()
-        // Notify MicCaptureManager of the idempotency key *before* the network
-        // call so pendingRunId is set before any chat events can arrive.
-        onRunIdKnown(idempotencyKey)
-        val params =
-          buildJsonObject {
-            put("sessionKey", JsonPrimitive(resolveMainSessionKey()))
-            put("message", JsonPrimitive(message))
-            put("thinking", JsonPrimitive(chatThinkingLevel.value))
-            put("timeoutMs", JsonPrimitive(30_000))
-            put("idempotencyKey", JsonPrimitive(idempotencyKey))
-          }
-        val response = operatorSession.request("chat.send", params.toString())
-        parseChatSendRunId(response) ?: idempotencyKey
-      },
-      speakAssistantReply = { text ->
-        // Skip if TalkModeManager is handling TTS (ttsOnAllResponses) to avoid
-        // double-speaking the same assistant reply from both pipelines.
-        if (!talkMode.ttsOnAllResponses) {
-          voiceReplySpeaker.speakAssistantReply(text)
-        }
-      },
+      resolveMainSessionKey = ::resolveMainSessionKey,
+      chatThinkingLevel = { chatThinkingLevel.value },
+      onAudioCaptureActiveChanged = { externalAudioCaptureActive.value = it },
     )
-  }
 
-  val micStatusText: StateFlow<String>
-    get() = micCapture.statusText
-
-  val micLiveTranscript: StateFlow<String?>
-    get() = micCapture.liveTranscript
-
-  val micIsListening: StateFlow<Boolean>
-    get() = micCapture.isListening
-
-  val micEnabled: StateFlow<Boolean>
-    get() = micCapture.micEnabled
-
-  val micCooldown: StateFlow<Boolean>
-    get() = micCapture.micCooldown
-
-  val micQueuedMessages: StateFlow<List<String>>
-    get() = micCapture.queuedMessages
-
-  val micConversation: StateFlow<List<VoiceConversationEntry>>
-    get() = micCapture.conversation
-
-  val micInputLevel: StateFlow<Float>
-    get() = micCapture.inputLevel
-
-  val micIsSending: StateFlow<Boolean>
-    get() = micCapture.isSending
-
-  private val talkMode: TalkModeManager by lazy {
-    TalkModeManager(
-      context = appContext,
-      scope = scope,
-      session = operatorSession,
-      supportsChatSubscribe = true,
-      isConnected = { operatorConnected },
-    )
-  }
+  val micStatusText: StateFlow<String> get() = voice.micStatusText
+  val micLiveTranscript: StateFlow<String?> get() = voice.micLiveTranscript
+  val micIsListening: StateFlow<Boolean> get() = voice.micIsListening
+  val micEnabled: StateFlow<Boolean> get() = voice.micEnabled
+  val micCooldown: StateFlow<Boolean> get() = voice.micCooldown
+  val micQueuedMessages: StateFlow<List<String>> get() = voice.micQueuedMessages
+  val micConversation: StateFlow<List<VoiceConversationEntry>> get() = voice.micConversation
+  val micInputLevel: StateFlow<Float> get() = voice.micInputLevel
+  val micIsSending: StateFlow<Boolean> get() = voice.micIsSending
 
   private fun applyMainSessionKey(candidate: String?) {
     val trimmed = normalizeMainKey(candidate) ?: return
     if (isCanonicalMainSessionKey(_mainSessionKey.value)) return
     if (_mainSessionKey.value == trimmed) return
     _mainSessionKey.value = trimmed
-    talkMode.setMainSessionKey(trimmed)
+    voice.talkMode.setMainSessionKey(trimmed)
     chat.applyMainSessionKey(trimmed)
   }
 
@@ -576,19 +509,7 @@ class NodeRuntime(context: Context) {
       prefs.loadGatewayToken()
     }
 
-    scope.launch {
-      prefs.talkEnabled.collect { enabled ->
-        // MicCaptureManager handles STT + send to gateway.
-        // TalkModeManager plays TTS on assistant responses.
-        micCapture.setMicEnabled(enabled)
-        if (enabled) {
-          // Mic on = user is on voice screen and wants TTS responses.
-          talkMode.ttsOnAllResponses = true
-          scope.launch { talkMode.ensureChatSubscribed() }
-        }
-        externalAudioCaptureActive.value = enabled
-      }
-    }
+    voice.startObservers()
 
     scope.launch(Dispatchers.Default) {
       gateways.collect { list ->
@@ -694,38 +615,18 @@ class NodeRuntime(context: Context) {
   }
 
   fun setVoiceScreenActive(active: Boolean) {
-    if (!active) {
-      // User left voice screen — stop mic and TTS
-      talkMode.ttsOnAllResponses = false
-      talkMode.stopTts()
-      micCapture.setMicEnabled(false)
-      prefs.setTalkEnabled(false)
-    }
-    // Don't re-enable on active=true; mic toggle drives that
+    voice.setVoiceScreenActive(active)
   }
 
   fun setMicEnabled(value: Boolean) {
-    prefs.setTalkEnabled(value)
-    if (value) {
-      // Tapping mic on interrupts any active TTS (barge-in)
-      talkMode.stopTts()
-      talkMode.ttsOnAllResponses = true
-      scope.launch { talkMode.ensureChatSubscribed() }
-    }
-    micCapture.setMicEnabled(value)
-    externalAudioCaptureActive.value = value
+    voice.setMicEnabled(value)
   }
 
   val speakerEnabled: StateFlow<Boolean>
-    get() = prefs.speakerEnabled
+    get() = voice.speakerEnabled
 
   fun setSpeakerEnabled(value: Boolean) {
-    prefs.setSpeakerEnabled(value)
-    if (voiceReplySpeakerLazy.isInitialized()) {
-      voiceReplySpeaker.setPlaybackEnabled(value)
-    }
-    // Keep TalkMode in sync so speaker mute works when ttsOnAllResponses is active.
-    talkMode.setPlaybackEnabled(value)
+    voice.setSpeakerEnabled(value)
   }
 
   fun refreshGatewayConnection() {
@@ -908,18 +809,8 @@ class NodeRuntime(context: Context) {
   }
 
   private fun handleGatewayEvent(event: String, payloadJson: String?) {
-    micCapture.handleGatewayEvent(event, payloadJson)
-    talkMode.handleGatewayEvent(event, payloadJson)
+    voice.handleGatewayEvent(event, payloadJson)
     chat.handleGatewayEvent(event, payloadJson)
-  }
-
-  private fun parseChatSendRunId(response: String): String? {
-    return try {
-      val root = json.parseToJsonElement(response).asObjectOrNull() ?: return null
-      root["runId"].asStringOrNull()
-    } catch (_: Throwable) {
-      null
-    }
   }
 
   private suspend fun refreshBrandingFromGateway() {
