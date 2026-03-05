@@ -44,6 +44,7 @@ fun ChatSheetContent(viewModel: MainViewModel) {
   val errorText by viewModel.chatError.collectAsState()
   val pendingRunCount by viewModel.pendingRunCount.collectAsState()
   val pendingShareText by viewModel.pendingShareText.collectAsState()
+  val pendingShareUris by viewModel.pendingShareUris.collectAsState()
   val healthOk by viewModel.chatHealthOk.collectAsState()
   val mainSessionKey by viewModel.mainSessionKey.collectAsState()
   val thinkingLevel by viewModel.chatThinkingLevel.collectAsState()
@@ -60,6 +61,20 @@ fun ChatSheetContent(viewModel: MainViewModel) {
   val scope = rememberCoroutineScope()
 
   val attachments = remember { mutableStateListOf<PendingImageAttachment>() }
+
+  // Load images shared via Android share intent into the attachments list.
+  LaunchedEffect(pendingShareUris) {
+    if (pendingShareUris.isEmpty()) return@LaunchedEffect
+    scope.launch(Dispatchers.IO) {
+      val loaded = pendingShareUris.take(8).mapNotNull { uri ->
+        try { loadImageAttachment(resolver, uri) } catch (_: Throwable) { null }
+      }
+      withContext(Dispatchers.Main) {
+        attachments.addAll(loaded)
+        viewModel.consumeShareUris()
+      }
+    }
+  }
 
   val pickImages =
     rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->

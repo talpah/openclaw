@@ -1,6 +1,7 @@
 package ai.openclaw.android
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import ai.openclaw.android.gateway.GatewayEndpoint
 import ai.openclaw.android.chat.OutgoingAttachment
@@ -27,6 +28,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
   fun consumeShareText() {
     _pendingShareText.value = null
+  }
+
+  /** Image URIs received via an Android share intent, consumed once by the chat composer. */
+  private val _pendingShareUris = MutableStateFlow<List<Uri>>(emptyList())
+  val pendingShareUris: StateFlow<List<Uri>> = _pendingShareUris.asStateFlow()
+
+  fun setShareUris(uris: List<Uri>) {
+    if (uris.isNotEmpty()) _pendingShareUris.value = uris
+  }
+
+  fun consumeShareUris() {
+    _pendingShareUris.value = emptyList()
   }
 
   val canvas: CanvasController = runtime.canvas

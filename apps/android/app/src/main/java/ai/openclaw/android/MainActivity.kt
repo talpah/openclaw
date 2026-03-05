@@ -1,6 +1,8 @@
 package ai.openclaw.android
 
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -77,13 +79,36 @@ class MainActivity : ComponentActivity() {
   }
 
   private fun handleShareIntent(intent: Intent?) {
-    if (intent?.action != Intent.ACTION_SEND) return
-    val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.trim()
-    val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT)?.trim()
-    if (!text.isNullOrEmpty()) {
-      // Combine subject + body when both are present (e.g., shared emails or articles).
-      val payload = if (!subject.isNullOrEmpty()) "$subject\n\n$text" else text
-      viewModel.setShareText(payload)
+    when (intent?.action) {
+      Intent.ACTION_SEND -> {
+        // Text share
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.trim()
+        val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT)?.trim()
+        if (!text.isNullOrEmpty()) {
+          val payload = if (!subject.isNullOrEmpty()) "$subject\n\n$text" else text
+          viewModel.setShareText(payload)
+          return
+        }
+        // Single image/file share
+        val uri: Uri? =
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+          } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+          }
+        if (uri != null) viewModel.setShareUris(listOf(uri))
+      }
+      Intent.ACTION_SEND_MULTIPLE -> {
+        val uris: ArrayList<Uri>? =
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+          } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+          }
+        if (!uris.isNullOrEmpty()) viewModel.setShareUris(uris)
+      }
     }
   }
 }
