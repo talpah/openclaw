@@ -241,7 +241,7 @@ private fun ThinkingDropdown(thinkingLevel: String, onSet: (String) -> Unit) {
       }
     }
     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, containerColor = Color.White) {
-      listOf("off", "low", "medium", "high").forEach { level ->
+      listOf("off", "minimal", "low", "medium", "high", "adaptive").forEach { level ->
         val active = level == thinkingLevel.trim().lowercase()
         DropdownMenuItem(
           text = { Text(thinkingLabel(level), style = mobileCallout, color = if (active) mobileAccent else mobileText) },
@@ -370,8 +370,10 @@ private fun ScreenTabScreen(viewModel: MainViewModel) {
 
 private fun thinkingLabel(raw: String): String =
   when (raw.trim().lowercase()) {
+    "minimal" -> "Minimal"
     "low" -> "Low"
     "medium" -> "Med"
     "high" -> "High"
+    "adaptive" -> "Adaptive"
     else -> "Off"
   }

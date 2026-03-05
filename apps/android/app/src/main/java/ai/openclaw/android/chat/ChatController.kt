@@ -268,7 +268,7 @@ class ChatController(
       val history = parseHistory(historyJson, sessionKey = key)
       _messages.value = history.messages
       _sessionId.value = history.sessionId
-      history.thinkingLevel?.trim()?.takeIf { it.isNotEmpty() }?.let { _thinkingLevel.value = it }
+      history.thinkingLevel?.trim()?.takeIf { it.isNotEmpty() && it.lowercase() != "off" }?.let { _thinkingLevel.value = it }
 
       pollHealthIfNeeded(force = forceHealth)
       fetchSessions(limit = 50)
@@ -339,7 +339,6 @@ class ChatController(
             val history = parseHistory(historyJson, sessionKey = _sessionKey.value)
             _messages.value = history.messages
             _sessionId.value = history.sessionId
-            history.thinkingLevel?.trim()?.takeIf { it.isNotEmpty() }?.let { _thinkingLevel.value = it }
           } catch (_: Throwable) {
             // best-effort
           }
@@ -511,9 +510,11 @@ class ChatController(
 
   private fun normalizeThinking(raw: String): String {
     return when (raw.trim().lowercase()) {
+      "minimal" -> "minimal"
       "low" -> "low"
       "medium" -> "medium"
       "high" -> "high"
+      "adaptive" -> "adaptive"
       else -> "off"
     }
   }

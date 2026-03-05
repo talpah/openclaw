@@ -1,29 +1,27 @@
 package ai.openclaw.android.ui.chat
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,17 +34,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ai.openclaw.android.ui.mobileAccent
 import ai.openclaw.android.ui.mobileAccentSoft
-import ai.openclaw.android.ui.mobileBorder
 import ai.openclaw.android.ui.mobileBorderStrong
 import ai.openclaw.android.ui.mobileCallout
 import ai.openclaw.android.ui.mobileCaption1
-import ai.openclaw.android.ui.mobileSurface
 import ai.openclaw.android.ui.mobileText
 import ai.openclaw.android.ui.mobileTextSecondary
 import ai.openclaw.android.ui.mobileTextTertiary
@@ -87,31 +84,51 @@ fun ChatComposer(
     Row(
       modifier = Modifier.fillMaxWidth(),
       verticalAlignment = Alignment.Bottom,
-      horizontalArrangement = Arrangement.spacedBy(6.dp),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-      OutlinedTextField(
+      // Pill-shaped input field
+      BasicTextField(
         value = input,
         onValueChange = { input = it },
         modifier = Modifier.weight(1f),
-        placeholder = { Text("Enter message here...", style = mobileBodyStyle(), color = mobileTextTertiary) },
-        minLines = 1,
-        maxLines = 5,
         textStyle = mobileBodyStyle().copy(color = mobileText),
-        shape = RoundedCornerShape(14.dp),
-        colors = chatTextFieldColors(),
-        leadingIcon = {
-          IconButton(onClick = onPickImages, modifier = Modifier.size(36.dp)) {
-            Icon(
-              Icons.Default.AttachFile,
-              contentDescription = "Attach",
-              tint = mobileTextSecondary,
-              modifier = Modifier.size(20.dp),
-            )
+        maxLines = 5,
+        cursorBrush = SolidColor(mobileAccent),
+        decorationBox = { innerTextField ->
+          Row(
+            modifier =
+              Modifier
+                .background(Color(0xFFF0F2F5), RoundedCornerShape(24.dp))
+                .padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.Bottom,
+          ) {
+            Box(modifier = Modifier.weight(1f)) {
+              if (input.isEmpty()) {
+                Text(
+                  text = "Enter message here...",
+                  style = mobileBodyStyle(),
+                  color = mobileTextTertiary,
+                )
+              }
+              innerTextField()
+            }
+            Box(
+              modifier = Modifier.size(32.dp).clickable { onPickImages() },
+              contentAlignment = Alignment.Center,
+            ) {
+              Icon(
+                Icons.Default.AttachFile,
+                contentDescription = "Attach",
+                tint = mobileTextSecondary,
+                modifier = Modifier.size(20.dp),
+              )
+            }
           }
         },
       )
 
-      Button(
+      // Circular send / stop button
+      Surface(
         onClick = {
           if (sendBusy) {
             onAbort()
@@ -123,22 +140,17 @@ fun ChatComposer(
         },
         enabled = sendBusy || canSend,
         modifier = Modifier.size(48.dp),
-        shape = RoundedCornerShape(14.dp),
-        colors =
-          ButtonDefaults.buttonColors(
-            containerColor = mobileAccent,
-            contentColor = Color.White,
-            disabledContainerColor = mobileBorderStrong,
-            disabledContentColor = mobileTextTertiary,
-          ),
-        border = BorderStroke(1.dp, if (sendBusy || canSend) Color(0xFF154CAD) else mobileBorderStrong),
-        contentPadding = PaddingValues(0.dp),
+        shape = RoundedCornerShape(999.dp),
+        color = if (sendBusy || canSend) mobileAccent else mobileBorderStrong,
       ) {
-        Icon(
-          imageVector = if (sendBusy) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send,
-          contentDescription = if (sendBusy) "Stop" else "Send",
-          modifier = Modifier.size(18.dp),
-        )
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+          Icon(
+            imageVector = if (sendBusy) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send,
+            contentDescription = if (sendBusy) "Stop" else "Send",
+            tint = if (sendBusy || canSend) Color.White else mobileTextTertiary,
+            modifier = Modifier.size(20.dp),
+          )
+        }
       }
     }
   }
@@ -197,18 +209,6 @@ private fun AttachmentChip(fileName: String, onRemove: () -> Unit) {
     }
   }
 }
-
-@Composable
-private fun chatTextFieldColors() =
-  OutlinedTextFieldDefaults.colors(
-    focusedContainerColor = mobileSurface,
-    unfocusedContainerColor = mobileSurface,
-    focusedBorderColor = mobileAccent,
-    unfocusedBorderColor = mobileBorder,
-    focusedTextColor = mobileText,
-    unfocusedTextColor = mobileText,
-    cursorColor = mobileAccent,
-  )
 
 @Composable
 private fun mobileBodyStyle() =
